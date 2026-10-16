@@ -17,7 +17,7 @@ help:
 	@echo "make package    build $(PACKAGE)"
 	@echo "make install    install/upgrade the script for this user (kpackagetool6)"
 	@echo "make enable     enable the script in KWin and reload it"
-	@echo "make reload     restart the script after code changes"
+	@echo "make reload     install and run the new code now (no logout needed)"
 	@echo "make disable    disable the script"
 	@echo "make uninstall  disable and remove the script"
 
@@ -64,10 +64,19 @@ disable:
 	qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript $(ID) >/dev/null
 	qdbus-qt6 org.kde.KWin /KWin reconfigure
 
-# KWin only reloads a script's code when it is unloaded and loaded again.
+# KWin compiles every script with one long-lived QML engine that caches files by
+# URL, so unloading and loading the installed script again runs the old code until
+# KWin restarts. Load a copy from a fresh path instead; KWin still reads the
+# settings by plugin id, and the installed copy takes over at the next login.
+DEV_DIR := $(or $(XDG_CACHE_HOME),$(HOME)/.cache)/$(ID)-dev
 reload: install
-	qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript $(ID) >/dev/null
-	qdbus-qt6 org.kde.KWin /KWin reconfigure
+	@stamp=$$(date +%s%N); dir="$(DEV_DIR)/$$stamp"; \
+	qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript $(ID) >/dev/null && \
+	find "$(DEV_DIR)" -mindepth 1 -maxdepth 1 -type d -exec rm -rf {} + 2>/dev/null; \
+	mkdir -p "$$dir" && cp -r $(BUILD)/. "$$dir/" && \
+	id=$$(qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadDeclarativeScript "$$dir/contents/ui/main.qml" $(ID)) && \
+	qdbus-qt6 org.kde.KWin /Scripting/Script$$id org.kde.kwin.Script.run && \
+	echo "reloaded $(ID) from $$dir"
 
 uninstall: disable
 	kpackagetool6 --type=KWin/Script --remove $(ID)
