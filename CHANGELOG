@@ -1,6 +1,7 @@
 6.0-dev
 - Renamed to KDE Snap Assist 6 (plugin id kdesnapassist6); settings from kdesnapassist2 are not carried over
 - Ported to Plasma 6 / KWin 6 (tested on KWin 6.7.5, Fedora 44, Wayland)
+- Fixed keyboard input on Wayland: keys went to the window behind the assist
 - Fixed KWin crashing after the script was reloaded or its settings were saved
 - Fixed a full-screen "zoom out" ghost (KWin close animation) when the assist closed
 - Fixed the assist offering its own overlay window, and duplicate or mismatched cards

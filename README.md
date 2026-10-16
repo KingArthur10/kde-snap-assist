@@ -23,6 +23,8 @@ Compared with the original Plasma 5 script (and the unfinished Plasma 6 work it 
 - Fixed KWin crashing when the script was reloaded or its settings were saved
 - Fixed the settings dialog on KF6 (number fields could not be edited)
 - Desktop background blur uses Qt 6 `MultiEffect`, so the Qt5Compat module is not needed
+- Keyboard control of the assist works on Wayland (arrows, `Enter`, `Escape`, `Tab`): KWin 6 only sends keys to
+  a script's window when it is a tool window, so the assist now is one
 
 **Works with how KWin 6 tiles windows**
 - Snaps are recognised at any split, not only exact halves and quarters: if you dragged the divider between
@@ -38,11 +40,12 @@ Compared with the original Plasma 5 script (and the unfinished Plasma 6 work it 
 - No more full-screen "zoom out" ghost (KWin's close animation) when the assist closes
 - The assist no longer offers its own overlay window, and no longer shows duplicate or mismatched cards
 - Windows on all desktops are offered again, and "Show windows from other desktops" works again
-- Minimize-together, restore-size-on-unsnap and keyboard selection fixed for KWin 6
+- Minimize-together and restore-size-on-unsnap fixed for KWin 6
 - Dismissing repeatedly during the closing animation no longer misbehaves
 
 **For developers and troubleshooting**
-- An automated test suite runs the real script in a headless, sandboxed KWin, plus `qmllint` and config checks
+- An automated test suite runs the real script in a headless, sandboxed KWin, typing real keys through KWin's
+  input stack, plus `qmllint` and config checks
   (see [Development](#development))
 - A `Makefile` for install, live reload, packaging and tests
 - An optional debug log that explains why the assist did or did not appear (see [Troubleshooting](#troubleshooting))
