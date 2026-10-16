@@ -93,6 +93,24 @@ var tests = [
         },
     },
     {
+        name: "repeated dismiss during the cancel animation closes once",
+        config: cfg({ transitionDuration: 300 }),
+        run: function* (t, env) {
+            env.quickTile(env.win("Alpha"), "Left");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 400;
+            env.sut.handleKey(Qt.Key_Escape);
+            yield 50;
+            env.sut.handleKey(Qt.Key_Escape);
+            env.sut.dismiss();
+            t.equal(env.sut.visibleWindowPreviews.length, 3, "one set of cancel previews");
+            yield t.until(() => !env.sut.activated && !env.sut.visible, "assist to close");
+            t.equal(env.workspace.activeWindow, env.win("Alpha"), "snapped window keeps focus");
+            env.quickTile(env.win("Alpha"), "Right");
+            yield t.until(() => env.sut.activated, "assist works again afterwards");
+        },
+    },
+    {
         name: "quarter snap chains the assist through every remaining quarter",
         config: cfg(),
         run: function* (t, env) {

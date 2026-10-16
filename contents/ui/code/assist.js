@@ -86,8 +86,10 @@ function preventAssistFromShowing(delay, callback){
 }
 
 function hideAssist(shouldFocusLastClient) {
+    if (cancelling) return;
     if (shouldFocusLastClient && immersiveMode) {
         /// when assist was called without selecting any item
+        cancelling = true;
         animateWindowPreviewsOnCancel(function(){actuallyHideAssist(shouldFocusLastClient)});
     } else {
         actuallyHideAssist(shouldFocusLastClient);
@@ -96,6 +98,7 @@ function hideAssist(shouldFocusLastClient) {
 
 function actuallyHideAssist(shouldFocusLastClient){
     activated = false;
+    cancelling = false;
     transitionDurationOnAssistMove = 0;
     main.hide();
 

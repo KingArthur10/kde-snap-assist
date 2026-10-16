@@ -50,6 +50,7 @@ Window {
     property bool cycleKeyboard: false /// not in use
     property bool preventFromShowing: false /// flag used to temporarly prevent assist from showing when not desired
     property bool selecting: false /// a candidate is being placed; its activation must not close the assist
+    property bool cancelling: false /// the cancel animation is running
 
     property int transitionDurationOnAssistMove: 0 /// separate transition duration when moving assist window with the Tab key
     property var visibleWindowPreviews: ([]) /// stores windows which should be constantly displayed (snapped windows)
