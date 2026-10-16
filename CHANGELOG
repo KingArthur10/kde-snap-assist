@@ -1,3 +1,14 @@
+2.0-dev (Plasma 6)
+- Ported to Plasma 6 / KWin 6 (tested on KWin 6.7.5, Fedora 44, Wayland)
+- Fixed KWin crashing after the script was reloaded or its settings were saved
+- Fixed the assist offering its own overlay window, and duplicate or mismatched cards
+- Fixed settings that could not be edited on KF6 (spin boxes in the settings dialog)
+- Snap detection tolerates KWin 6's fractional window geometry
+- Windows on all desktops are offered again; "Show windows from other desktops" works again
+- Minimize-together, restore-size-on-unsnap and keyboard selection fixed for KWin 6
+- Desktop background blur uses Qt 6 MultiEffect (no Qt5Compat dependency)
+- Added a headless test suite, qmllint checks and a Makefile
+
 2.0-dev
 - (!) New experimental "Fullscreen background" mode, which provides smooth transitions and more Windows-like behavior
 - Don't process window resize of non-active windows, and windows with 'skipSwitcher' flag

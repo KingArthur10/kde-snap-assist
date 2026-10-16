@@ -9,7 +9,22 @@ function cfg(extra) { return Object.assign({}, FAST, extra || {}); }
 function captions(list) { return list.map(w => w.caption); }
 function r(x, y, w, h) { return { x: x, y: y, width: w, height: h }; }
 
+/// Components the runtime only loads in some situations (e.g. DesktopBackground
+/// needs a Plasma desktop window, which the headless session does not have).
+const COMPONENTS = ["components/DesktopBackground.qml", "components/CornerButton.qml"];
+
 var tests = [
+    {
+        name: "every QML component compiles (imports resolve on Qt 6 / KF6)",
+        config: cfg(),
+        run: function* (t, env) {
+            for (const path of COMPONENTS) {
+                const c = Qt.createComponent(Qt.resolvedUrl("../../contents/ui/" + path));
+                yield t.until(() => c.status !== Component.Loading, path + " to compile");
+                t.equal(c.status, Component.Ready, path + (c.status === Component.Error ? ": " + c.errorString() : ""));
+            }
+        },
+    },
     {
         name: "script loads hidden and does not grab the screen",
         config: cfg(),

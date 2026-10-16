@@ -24,16 +24,40 @@ Since version `1.4`, there are also experimental *snap group* features:
 When you enable any of these options in the script settings, it will start tracking windows snapped via the script. Group of snapped windows is remembered once you fill the layout using the assist. Window is no longer considered snapped once it was closed or moved manually using the mouse (sometimes you need to do it twice to break it from the group). Snap groups are not persistent, and should be recreated after each reboot.
 
 ---
-### Manual Installation
-In order to install this script manually from GitHub, you'd need to:
-- Delete current version of script and re-login to KDE Plasma
-- Download the code as .zip (green "Code" button > "Download as ZIP"), and rename file to .kwinscript extension
-- Use the "Install from file" button in System settings > Windows manager > KWin scripts
-- Re-login to Plasma again (or restart KWin) to make sure the script is installed
+### Manual Installation (Plasma 6)
+From a clone of this repository:
+```sh
+make install   # installs/upgrades the script for your user (kpackagetool6)
+make enable    # enables it in KWin (same as ticking it in System Settings > Window Management > KWin Scripts)
+```
+`make reload` re-installs and restarts the script after changes; `make uninstall` removes it.
+`make package` builds an installable `dist/*.kwinscript` for "Install from File...".
+
+---
+### Development
+Requirements on Fedora: `kwin`, `python3-gobject` + `gtk4` (test windows), `zip`, and
+`qt6-qtdeclarative-devel` for `qmllint`.
+
+```sh
+make check   # lint + end-to-end tests + packaging smoke test
+```
+- `tests/run-tests.sh` starts a **headless, sandboxed** `kwin_wayland --virtual` on its own D-Bus
+  session with throwaway XDG directories, so it never touches your running Plasma session or
+  `~/.config`. It loads the real script, opens GTK test windows, snaps them with KWin's own
+  quick-tile actions and checks the result. Output is TAP.
+  Use `--filter REGEX` to run some tests, `--verbose` for the KWin log, and
+  `--screenshot DIR` to save screenshots of the assist.
+- `tests/kwin/UnitTests.js` covers the pure geometry in `contents/ui/code/layout.js`;
+  `tests/kwin/IntegrationTests.js` covers end-to-end behaviour.
+- `tests/lint.sh` runs `qmllint` (see `.qmllint.ini`) and checks that every setting has the same
+  default in `contents/config/main.xml` and `main.qml`, and a widget in `config.ui`.
+
+Some behaviour still needs a manual check in a real session: dragging a window to a screen edge,
+real keyboard and mouse input in the overlay, and the blurred desktop background.
 
 ---
 ### Troubleshooting
-- To apply the new settings, you may need to re-enable the script or restart KWin. The same is recommended if you switch from one version of the script to another
+- KWin restarts the script when you save its settings. If a change does not apply, run `make reload` or re-enable the script. The same is recommended if you switch from one version of the script to another
 - Assist will not show if you have no other windows matching the conditions set in the script settings. For example, by default the script does not show windows from other screens — so, if you have only one window on the current screen, assist will not show
 - Script settings button is not visible, or complains that "Plugin doesn't provide configuration file in the expected location" — this is a known KWin's bug, not related to the script. Make sure your system is up-to-date, as it seems to be fixed now. If it doesn't help, you can also try to install the script [manually](https://github.com/emvaized/kde-snap-assist#manual-installation)
 - KWin crashes after sleep — it was reported [here](https://github.com/emvaized/kde-snap-assist/issues/35) that you may need to install `pygdbmi` library to fix the crash after sleep
