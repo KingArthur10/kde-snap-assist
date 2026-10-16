@@ -165,8 +165,9 @@ function onWindowResize(window) {
     const maxArea = KWinComponents.Workspace.clientArea(KWinComponents.Workspace.MaximizeArea, window);
     const snap = Layout.detectSnap(window.frameGeometry, maxArea, snapDetectPrecision);
     debugLog("check:", window.caption, "geometry", window.frameGeometry, "area", maxArea, "tile", window.tile,
-             "snap", snap ? snap.mode + "/" + snap.index : "none");
-    if (!snap) return;
+             "snap", snap ? snap.mode + "/" + snap.index + (snap.custom ? " custom" : "") : "none");
+    /// an uneven split is only a snap when KWin tiled the window, not when it was dragged flush to an edge
+    if (!snap || (snap.custom && !window.tile)) return;
 
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
@@ -201,9 +202,8 @@ function onWindowResize(window) {
     case Layout.LayoutMode.Quarter:
     case Layout.LayoutMode.Thirds: {
         /// keys are zone positions, which switchAssistLayout() relies on
-        const zones = snap.mode === Layout.LayoutMode.Quarter ? Layout.quarterZones(maxArea) : Layout.thirdZones(maxArea);
         quatersToShowNext = {};
-        zones.forEach(function(zone, i) {
+        snap.zones.forEach(function(zone, i) {
             if (i !== snap.index) quatersToShowNext[i] = { dx: zone.x, dy: zone.y, height: zone.height, width: zone.width };
         });
         AssistManager.checkToShowNextQuaterAssist(window);

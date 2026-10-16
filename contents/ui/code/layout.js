@@ -21,13 +21,16 @@ function rect(x, y, width, height) {
     return { x: x, y: y, width: width, height: height };
 }
 
-function quarterZones(area) {
-    const w = area.width / 2, h = area.height / 2;
+/// Split point defaults to the centre; KWin 6 remembers quick tile splits the user
+/// resized, so a snapped window can mark a different one.
+function quarterZones(area, splitX, splitY) {
+    const sx = splitX ?? area.x + area.width / 2, sy = splitY ?? area.y + area.height / 2;
+    const right = area.x + area.width, bottom = area.y + area.height;
     return [
-        rect(area.x, area.y, w, h),
-        rect(area.x + w, area.y, w, h),
-        rect(area.x, area.y + h, w, h),
-        rect(area.x + w, area.y + h, w, h),
+        rect(area.x, area.y, sx - area.x, sy - area.y),
+        rect(sx, area.y, right - sx, sy - area.y),
+        rect(area.x, sy, sx - area.x, bottom - sy),
+        rect(sx, sy, right - sx, bottom - sy),
     ];
 }
 
@@ -38,37 +41,50 @@ function thirdZones(area) {
 
 /// Classifies a window geometry against the screen's maximize area.
 /// Returns null when the window is not in a recognised snap position, otherwise
-///   { mode: LayoutMode.*, index, zone, remaining: [rects] }
-/// where `remaining` lists the empty zones, in the order assist should offer them.
+///   { mode: LayoutMode.*, index, zone, zones, remaining: [rects], custom }
+/// `zones` is the whole layout (index points at the window's zone), `remaining`
+/// lists the empty zones in the order assist should offer them, and `custom` is
+/// true when the split is not at the standard halves/quarters, which only a
+/// tiled window should be trusted with.
 function detectSnap(geom, area, tolerance) {
     const near = (a, b) => isNear(a, b, tolerance);
-    const halfW = area.width / 2, halfH = area.height / 2;
+    const right = area.x + area.width, bottom = area.y + area.height;
+    const geomRight = geom.x + geom.width, geomBottom = geom.y + geom.height;
+    const atLeft = near(geom.x, area.x), atRight = near(geomRight, right);
+    const atTop = near(geom.y, area.y), atBottom = near(geomBottom, bottom);
+    const fullWidth = atLeft && atRight, fullHeight = atTop && atBottom;
 
-    if (near(geom.width, halfW) && near(geom.height, area.height) && near(geom.y, area.y)) {
-        if (near(geom.x, area.x))
-            return { mode: LayoutMode.VerticalSplit, index: 0, zone: rect(area.x, area.y, halfW, area.height),
-                     remaining: [rect(area.x + halfW, area.y, halfW, area.height)] };
-        if (near(geom.x, area.x + halfW))
-            return { mode: LayoutMode.VerticalSplit, index: 1, zone: rect(area.x + halfW, area.y, halfW, area.height),
-                     remaining: [rect(area.x, area.y, halfW, area.height)] };
-        return null;
+    if (fullWidth && fullHeight) return null;
+
+    if (fullHeight && near(geom.width, area.width / 3)) {
+        const thirds = zonedSnap(LayoutMode.Thirds, thirdZones(area), geom, near);
+        if (thirds) return thirds;
     }
 
-    if (near(geom.width, area.width) && near(geom.height, halfH) && near(geom.x, area.x)) {
-        if (near(geom.y, area.y))
-            return { mode: LayoutMode.HorizontalSplit, index: 0, zone: rect(area.x, area.y, area.width, halfH),
-                     remaining: [rect(area.x, area.y + halfH, area.width, halfH)] };
-        if (near(geom.y, area.y + halfH))
-            return { mode: LayoutMode.HorizontalSplit, index: 1, zone: rect(area.x, area.y + halfH, area.width, halfH),
-                     remaining: [rect(area.x, area.y, area.width, halfH)] };
-        return null;
+    if (fullHeight && (atLeft || atRight)) {
+        const zone = rect(geom.x, area.y, geom.width, area.height);
+        const rest = atLeft ? rect(geomRight, area.y, right - geomRight, area.height)
+                            : rect(area.x, area.y, geom.x - area.x, area.height);
+        return { mode: LayoutMode.VerticalSplit, index: atLeft ? 0 : 1, zone: zone,
+                 zones: atLeft ? [zone, rest] : [rest, zone], remaining: [rest],
+                 custom: !near(geom.width, area.width / 2) };
     }
 
-    if (near(geom.width, halfW) && near(geom.height, halfH))
-        return zonedSnap(LayoutMode.Quarter, quarterZones(area), geom, near);
+    if (fullWidth && (atTop || atBottom)) {
+        const zone = rect(area.x, geom.y, area.width, geom.height);
+        const rest = atTop ? rect(area.x, geomBottom, area.width, bottom - geomBottom)
+                           : rect(area.x, area.y, area.width, geom.y - area.y);
+        return { mode: LayoutMode.HorizontalSplit, index: atTop ? 0 : 1, zone: zone,
+                 zones: atTop ? [zone, rest] : [rest, zone], remaining: [rest],
+                 custom: !near(geom.height, area.height / 2) };
+    }
 
-    if (near(geom.width, area.width / 3) && near(geom.height, area.height) && near(geom.y, area.y))
-        return zonedSnap(LayoutMode.Thirds, thirdZones(area), geom, near);
+    if ((atLeft || atRight) && (atTop || atBottom)) {
+        const splitX = atLeft ? geomRight : geom.x, splitY = atTop ? geomBottom : geom.y;
+        const snap = zonedSnap(LayoutMode.Quarter, quarterZones(area, splitX, splitY), geom, near);
+        if (snap) snap.custom = !near(splitX, area.x + area.width / 2) || !near(splitY, area.y + area.height / 2);
+        return snap;
+    }
 
     return null;
 }
@@ -76,7 +92,8 @@ function detectSnap(geom, area, tolerance) {
 function zonedSnap(mode, zones, geom, near) {
     const index = zones.findIndex(z => near(geom.x, z.x) && near(geom.y, z.y));
     if (index < 0) return null;
-    return { mode: mode, index: index, zone: zones[index], remaining: zones.filter((z, i) => i !== index) };
+    return { mode: mode, index: index, zone: zones[index], zones: zones,
+             remaining: zones.filter((z, i) => i !== index), custom: false };
 }
 
 /// Standard axis-aligned overlap test (touching edges do not count).

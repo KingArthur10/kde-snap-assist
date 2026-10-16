@@ -190,6 +190,32 @@ var tests = [
         },
     },
     {
+        name: "a quick tile split resized by the user still shows the assist in the rest",
+        config: cfg(),
+        run: function* (t, env) {
+            const alpha = env.win("Alpha");
+            env.quickTile(alpha, "Left");
+            yield t.until(() => alpha.tile, "window to be tiled");
+            /// what dragging the divider between two quick tiles does; KWin remembers it
+            alpha.tile.resizeByPixels(-192, Qt.RightEdge);
+            yield t.until(() => env.sut.activated, "assist to activate");
+            t.rectNear(alpha.frameGeometry, r(0, 0, 768, 1080), "window took the resized tile");
+            t.rectNear(env.sut.assistRect(), r(768, 0, 1152, 1080), "assist covers the rest of the screen");
+            env.sut.dismiss();
+            yield t.until(() => !env.sut.visible, "assist to hide");
+            alpha.tile.resizeByPixels(192, Qt.RightEdge);
+        },
+    },
+    {
+        name: "a floating window pushed flush to an edge is not taken for an uneven snap",
+        config: cfg(),
+        run: function* (t, env) {
+            env.win("Alpha").frameGeometry = Qt.rect(0, 0, 768, 1080);
+            yield 400;
+            t.ok(!env.sut.activated, "assist stayed hidden");
+        },
+    },
+    {
         name: "ordinary moves and resizes do not trigger the assist",
         config: cfg(),
         run: function* (t, env) {

@@ -60,6 +60,39 @@ var tests = [
         },
     },
     {
+        name: "layout: a resized (uneven) split leaves the rest of the screen",
+        run: function (t) {
+            /// a real 2560x1554 laptop screen after the divider was dragged to 40/60
+            const area = r(0, 0, 2560, 1554);
+            const left = Layout.detectSnap(r(0, 0, 1034, 1554), area, 0);
+            t.equal(left && left.mode, Layout.LayoutMode.VerticalSplit, "left 40% is a vertical split");
+            t.ok(left.custom, "flagged as a custom split");
+            t.rectNear(left.remaining[0], r(1034, 0, 1526, 1554), "assist gets the right 60%");
+            const right = Layout.detectSnap(r(1034, 0, 1526, 1554), area, 0);
+            t.equal(right && right.index, 1, "right 60% index");
+            t.rectNear(right.remaining[0], r(0, 0, 1034, 1554), "assist gets the left 40%");
+            const top = Layout.detectSnap(r(0, 0, 2560, 600), area, 0);
+            t.rectNear(top && top.remaining[0], r(0, 600, 2560, 954), "uneven top split leaves the bottom");
+            t.ok(!Layout.detectSnap(r(0, 0, 960, 1080), AREA, 0).custom, "exact halves are not custom");
+        },
+    },
+    {
+        name: "layout: a quarter at a moved split point builds the other quarters from it",
+        run: function (t) {
+            const area = r(0, 0, 2560, 1554);
+            const s = Layout.detectSnap(r(0, 0, 1034, 777), area, 0);
+            t.equal(s && s.mode, Layout.LayoutMode.Quarter, "top-left corner is a quarter");
+            t.equal(s.index, 0, "top-left index");
+            t.ok(s.custom, "flagged as custom");
+            t.rectNear(s.zones[1], r(1034, 0, 1526, 777), "top-right");
+            t.rectNear(s.zones[2], r(0, 777, 1034, 777), "bottom-left");
+            t.rectNear(s.zones[3], r(1034, 777, 1526, 777), "bottom-right");
+            const br = Layout.detectSnap(r(1034, 777, 1526, 777), area, 0);
+            t.equal(br && br.index, 3, "bottom-right corner window");
+            t.rectNear(br.zones[0], r(0, 0, 1034, 777), "top-left built from its split");
+        },
+    },
+    {
         name: "layout: offset maximize area (second screen, top panel)",
         run: function (t) {
             const s = Layout.detectSnap(r(1920, 44, 1280, 1396), OFFSET_AREA, 0);
