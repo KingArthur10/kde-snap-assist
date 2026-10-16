@@ -88,6 +88,7 @@ var tests = [
                 yield t.until(() => env.sut.activated && env.sut.clients.length > 0, "assist #" + (i + 1));
                 yield 100;
                 t.rectNear(env.sut.assistRect(), expected[i], "assist #" + (i + 1) + " position");
+                yield env.screenshot("quarter-chain-" + (i + 1));
                 t.equal(env.sut.clients.length, 3 - i, "assist #" + (i + 1) + " excludes already placed windows");
                 const chosen = env.sut.clients[0];
                 placed.push({ w: chosen, g: expected[i] });
@@ -97,6 +98,19 @@ var tests = [
             yield t.until(() => !env.sut.activated, "assist to finish");
             yield 200;
             placed.forEach(p => t.rectNear(p.w.frameGeometry, p.g, p.w.caption + " placed"));
+        },
+    },
+    {
+        name: "non-immersive mode shows the assist as its own window over the empty zone",
+        config: cfg({ immersiveMode: false }),
+        run: function* (t, env) {
+            env.quickTile(env.win("Alpha"), "Left");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 150;
+            yield env.screenshot("half-left-non-immersive");
+            t.rectNear(env.sut.assistRect(), r(960, 0, 960, 1080), "assist window covers the right half");
+            env.sut.selectCandidate(0);
+            yield t.until(() => !env.sut.activated, "assist to close");
         },
     },
     {

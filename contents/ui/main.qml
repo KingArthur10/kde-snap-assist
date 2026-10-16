@@ -537,7 +537,7 @@ Window {
         showDesktopBackground = readConfig("showDesktopBackground", true);
         desktopBackgroundBlur = readConfig("desktopBackgroundBlur", 18);
         immersiveMode = readConfig("immersiveMode", true);
-        opacityForMinimized = readConfig("opacityForMinimized", 0.99);
+        opacityForMinimized = readConfig("opacityForMinimized", 1.0);
         trackSnappedWindows = minimizeSnappedTogether || raiseSnappedTogether || fillOnSnappedClose || fillOnSnappedMove || fitWindowInGroupBehind || !showSnappedWindows;
         trackActiveWindows = sortByLastActive || fitWindowInGroupBehind;
         if (!showDesktopBackground) immersiveMode = false;
