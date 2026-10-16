@@ -48,8 +48,11 @@ $(PACKAGE): $(BUILD)
 	@echo "built $@"
 
 install: $(BUILD)
-	kpackagetool6 --type=KWin/Script --upgrade $(BUILD) 2>/dev/null \
-		|| kpackagetool6 --type=KWin/Script --install $(BUILD)
+	@if kpackagetool6 --type=KWin/Script --show $(ID) >/dev/null 2>&1; then \
+		kpackagetool6 --type=KWin/Script --upgrade $(BUILD); \
+	else \
+		kpackagetool6 --type=KWin/Script --install $(BUILD); \
+	fi
 
 enable:
 	kwriteconfig6 --file kwinrc --group Plugins --key $(ID)Enabled true
