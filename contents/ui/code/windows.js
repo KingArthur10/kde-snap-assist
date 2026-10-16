@@ -48,14 +48,7 @@ function selectClient(client){
     client.shade = false;
     client.minimized = false;
 
-    if (client.tile) {
-        /// a window still attached to a KWin tile would keep that tile's geometry
-        client.tile = null;
-    } else if (rememberWindowSizes) {
-        windowSizesBeforeSnap[client.internalId] = { height: client.height, width: client.width };
-    }
-
-    client.frameGeometry = immersiveMode ? Qt.rect(
+    const target = immersiveMode ? Qt.rect(
         mainWindow.x - (assistPadding / 2) + minDx,
         mainWindow.y - (assistPadding / 2) + minDy,
         mainWindow.width + assistPadding,
@@ -66,6 +59,41 @@ function selectClient(client){
         main.width + assistPadding,
         main.height + assistPadding
     );
+
+    if (!client.tile && rememberWindowSizes)
+        windowSizesBeforeSnap[client.internalId] = { height: client.height, width: client.width };
+
+    /// Joining the snapped window's tile layout makes KWin resize the windows
+    /// together when the split between them is dragged.
+    const tile = tileCovering(filteredClients.concat([lastActiveClient]), target);
+    debugLog("place", client.caption, tile ? "into tile " + tile.absoluteGeometry : "at " + target);
+    if (tile) {
+        if (client.tile !== tile) tile.manage(client);
+        return;
+    }
+    /// a window still attached to a KWin tile would keep that tile's geometry
+    if (client.tile) client.tile.unmanage(client);
+    client.frameGeometry = target;
+}
+
+/// The tile, in the layout of any of the tiled `windows`, whose area is `rect`.
+function tileCovering(windows, rect) {
+    const near = (a, b) => Layout.isNear(a, b, 2);
+    const roots = [];
+    windows.forEach(function(w) {
+        let root = w && !w.deleted ? w.tile : null;
+        while (root && root.parent) root = root.parent;
+        if (root && !roots.includes(root)) roots.push(root);
+    });
+    const stack = roots.slice();
+    while (stack.length) {
+        const tile = stack.pop();
+        const g = tile.absoluteGeometry;
+        if (!roots.includes(tile) && near(g.x, rect.x) && near(g.y, rect.y) && near(g.width, rect.width) && near(g.height, rect.height))
+            return tile;
+        tile.tiles.forEach(child => stack.push(child));
+    }
+    return null;
 }
 
 function onClientSelect(client){

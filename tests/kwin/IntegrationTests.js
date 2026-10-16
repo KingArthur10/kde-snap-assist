@@ -150,6 +150,54 @@ var tests = [
         },
     },
     {
+        name: "dragging the split between two snapped halves resizes both windows",
+        config: cfg(),
+        run: function* (t, env) {
+            const alpha = env.win("Alpha");
+            env.quickTile(alpha, "Left");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            const chosen = env.sut.clients[0];
+            env.sut.selectCandidate(0);
+            yield t.until(() => !env.sut.activated, "assist to close");
+            t.ok(chosen.tile && chosen.tile.parent === alpha.tile.parent, "chosen window joined the snapped window's tile layout");
+            /// what dragging the shared edge does to the tiles
+            alpha.tile.resizeByPixels(-192, Qt.RightEdge);
+            yield t.until(() => Math.abs(chosen.x - 768) < 1, "chosen window to follow the split");
+            t.rectNear(alpha.frameGeometry, r(0, 0, 768, 1080), "snapped window shrank");
+            t.rectNear(chosen.frameGeometry, r(768, 0, 1152, 1080), chosen.caption + " grew into the rest");
+            alpha.tile.resizeByPixels(192, Qt.RightEdge);
+        },
+    },
+    {
+        name: "dragging the centre of four snapped quarters moves the whole cross",
+        config: cfg(),
+        run: function* (t, env) {
+            const alpha = env.win("Alpha");
+            env.quickTile(alpha, "TopLeft");
+            const zones = [r(960, 0, 960, 540), r(0, 540, 960, 540), r(960, 540, 960, 540)];
+            for (let i = 0; i < zones.length; i++) {
+                const z = zones[i];
+                yield t.until(() => {
+                    const a = env.sut.activated && env.sut.assistRect();
+                    return a && Math.abs(a.x - z.x) < 1 && Math.abs(a.y - z.y) < 1 && Math.abs(a.width - z.width) < 1;
+                }, "assist #" + (i + 1) + " in place");
+                env.sut.selectCandidate(0);
+            }
+            yield t.until(() => !env.sut.activated, "assist to finish");
+            const all = env.fixtures();
+            t.ok(all.every(w => w.tile && w.tile.parent === alpha.tile.parent), "all four windows share one tile layout");
+            alpha.tile.resizeByPixels(-200, Qt.RightEdge);
+            alpha.tile.resizeByPixels(-100, Qt.BottomEdge);
+            yield t.until(() => all.every(w => !w.tile || Math.abs(w.x) < 1 || Math.abs(w.x - 760) < 1), "windows to follow");
+            yield 100;
+            const at = (x, y) => all.find(w => Math.abs(w.x - x) < 1 && Math.abs(w.y - y) < 1);
+            t.ok(at(0, 0) && at(760, 0) && at(0, 440) && at(760, 440), "one window in each corner of the moved cross");
+            t.rectNear(at(760, 440) && at(760, 440).frameGeometry, r(760, 440, 1160, 640), "bottom-right follows both axes");
+            alpha.tile.resizeByPixels(200, Qt.RightEdge);
+            alpha.tile.resizeByPixels(100, Qt.BottomEdge);
+        },
+    },
+    {
         name: "non-immersive mode shows the assist as its own window over the empty zone",
         config: cfg({ immersiveMode: false }),
         run: function* (t, env) {
