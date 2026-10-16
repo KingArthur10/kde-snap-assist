@@ -49,6 +49,22 @@ var tests = [
         },
     },
     {
+        name: "overlay opts out of KWin's close animation (no full-screen zoom-out ghost)",
+        config: cfg(),
+        run: function* (t, env) {
+            for (const where of ["Left", "Right"]) {
+                env.quickTile(env.win("Alpha"), where);
+                yield t.until(() => env.sut.activated, "assist to activate (" + where + ")");
+                const overlay = env.workspace.windows.find(w => w.caption === env.sut.overlayTitle);
+                t.ok(overlay, "overlay is a KWin window while shown");
+                if (overlay) t.ok(overlay.skipsCloseAnimation, "overlay skips close animation (" + where + ")");
+                env.sut.dismiss();
+                yield t.until(() => !env.sut.visible, "assist to close");
+                yield 200;
+            }
+        },
+    },
+    {
         name: "selecting a candidate fills the empty half and closes the assist",
         config: cfg(),
         run: function* (t, env) {

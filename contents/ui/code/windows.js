@@ -86,7 +86,13 @@ function onClientSelect(client){
 /// unloaded. A plain connect(fn) outlives the script's QML context and makes
 /// KWin crash the next time the signal fires.
 function addListenersToClient(client) {
-    if (!client || client.specialWindow || client.skipSwitcher || isOwnOverlay(client)) return;
+    if (isOwnOverlay(client)) {
+        /// KWin creates a new window each time the overlay is shown; without this,
+        /// effects like Scale play a full-screen zoom-out when it hides
+        client.skipsCloseAnimation = true;
+        return;
+    }
+    if (!client || client.specialWindow || client.skipSwitcher) return;
 
     client.frameGeometryChanged.connect(main, function() {
         if (client.move || client.resize || activated || preventFromShowing) return;
