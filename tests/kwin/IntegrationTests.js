@@ -160,12 +160,52 @@ var tests = [
             env.sut.selectCandidate(0);
             yield t.until(() => !env.sut.activated, "assist to close");
             t.ok(chosen.tile && chosen.tile.parent === alpha.tile.parent, "chosen window joined the snapped window's tile layout");
+            yield t.until(() => !env.sut.preventFromShowing, "post-selection suppression to end");
+            yield 200;
             /// what dragging the shared edge does to the tiles
             alpha.tile.resizeByPixels(-192, Qt.RightEdge);
             yield t.until(() => Math.abs(chosen.x - 768) < 1, "chosen window to follow the split");
             t.rectNear(alpha.frameGeometry, r(0, 0, 768, 1080), "snapped window shrank");
             t.rectNear(chosen.frameGeometry, r(768, 0, 1152, 1080), chosen.caption + " grew into the rest");
+            yield 400;
+            t.ok(!env.sut.activated, "no assist: both windows were already snapped");
             alpha.tile.resizeByPixels(192, Qt.RightEdge);
+        },
+    },
+    {
+        name: "snapping into the last empty quarter does not offer the occupied ones",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta, gamma, delta] = ["Alpha", "Beta", "Gamma", "Delta"].map(env.win);
+            env.sut.preventFromShowing = true; /// arrange the other quarters without the assist
+            env.quickTile(beta, "TopRight"); env.quickTile(gamma, "BottomLeft"); env.quickTile(delta, "BottomRight");
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopLeft");
+            yield 400;
+            t.ok(!env.sut.activated, "no assist when every other quarter is taken");
+        },
+    },
+    {
+        name: "a quarter snap only offers the quarters that are still empty",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta] = ["Alpha", "Beta"].map(env.win);
+            env.sut.preventFromShowing = true;
+            env.quickTile(beta, "TopRight");
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopLeft");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 100;
+            t.rectNear(env.sut.assistRect(), r(0, 540, 960, 540), "first offer skips the occupied top-right");
+            env.sut.selectCandidate(0);
+            yield t.until(() => {
+                const a = env.sut.activated && env.sut.assistRect();
+                return a && Math.abs(a.x - 960) < 1 && Math.abs(a.y - 540) < 1;
+            }, "assist to move to bottom-right");
+            env.sut.selectCandidate(0);
+            yield t.until(() => !env.sut.activated, "assist to finish after the empty quarters");
         },
     },
     {

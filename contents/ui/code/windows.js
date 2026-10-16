@@ -128,12 +128,20 @@ function addListenersToClient(client) {
     });
 
     /// KWin may apply the snapped geometry while the move is still in progress
+    /// resizing a window by its edges is never a snap, even when it ends at one
+    let resizing = false;
     client.interactiveMoveResizeFinished.connect(main, function() {
-        debugLog("move/resize finished:", client.caption);
+        debugLog("move/resize finished:", client.caption, resizing ? "(resize)" : "(move)");
+        if (resizing) {
+            resizing = false;
+            if (!activated) AssistManager.preventAssistFromShowing();
+            return;
+        }
         if (!activated && !preventFromShowing) scheduleSnapCheck(client);
     });
 
     client.interactiveMoveResizeStarted.connect(main, function(){
+        resizing = client.resize;
         if (trackSnappedWindows && !client.resize)
             removeWindowFromTrack(client.internalId, function(group){
                 if (fillOnSnappedMove) fillClosedWindow(client, group);
@@ -197,6 +205,13 @@ function onWindowResize(window) {
     /// an uneven split is only a snap when KWin tiled the window, not when it was dragged flush to an edge
     if (!snap || (snap.custom && !window.tile)) return;
 
+    /// moving the split between windows that are already snapped is not a new snap
+    const emptyZones = snap.remaining.filter(zone => !isZoneOccupied(zone, window));
+    if (emptyZones.length === 0) {
+        debugLog("every other zone is already occupied, not showing");
+        return;
+    }
+
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
@@ -232,7 +247,8 @@ function onWindowResize(window) {
         /// keys are zone positions, which switchAssistLayout() relies on
         quatersToShowNext = {};
         snap.zones.forEach(function(zone, i) {
-            if (i !== snap.index) quatersToShowNext[i] = { dx: zone.x, dy: zone.y, height: zone.height, width: zone.width };
+            if (i !== snap.index && emptyZones.includes(zone))
+                quatersToShowNext[i] = { dx: zone.x, dy: zone.y, height: zone.height, width: zone.width };
         });
         AssistManager.checkToShowNextQuaterAssist(window);
         break;
@@ -440,6 +456,14 @@ function shouldShowWindow(client) {
     if (!showSnappedWindows && snappedWindowGroups.some(group => group.windows.includes(client.internalId) && group.windows.length > 1)) return false;
     if (client.activities.length > 0 && !client.activities.includes(KWinComponents.Workspace.currentActivity)) return false;
     return true;
+}
+
+/// Whether another visible window already fills `zone` (KWin tile layouts may
+/// leave gaps between windows, so most of the zone is enough).
+function isZoneOccupied(zone, except) {
+    return KWinComponents.Workspace.windows.some(w => w !== except && !w.deleted && !w.minimized
+        && w.normalWindow && !isOwnOverlay(w) && isOnCurrentDesktop(w)
+        && Layout.coverage(zone, w.frameGeometry) >= 0.9);
 }
 
 /// Oldest activation first; windows never activated come first.

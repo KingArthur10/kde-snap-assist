@@ -101,6 +101,14 @@ function rectsIntersect(a, b) {
     return a.x + a.width > b.x && a.x < b.x + b.width && a.y + a.height > b.y && a.y < b.y + b.height;
 }
 
+/// Fraction (0..1) of `zone` that `geom` covers.
+function coverage(zone, geom) {
+    const w = Math.min(zone.x + zone.width, geom.x + geom.width) - Math.max(zone.x, geom.x);
+    const h = Math.min(zone.y + zone.height, geom.y + geom.height) - Math.max(zone.y, geom.y);
+    const area = zone.width * zone.height;
+    return w > 0 && h > 0 && area > 0 ? (w * h) / area : 0;
+}
+
 /// New geometry for a window that grows into the space `freed` left behind,
 /// or null if `geom` does not share a full edge with it.
 function fillGeometry(geom, freed, area, tolerance) {

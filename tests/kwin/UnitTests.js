@@ -93,6 +93,16 @@ var tests = [
         },
     },
     {
+        name: "layout: coverage of a zone by a window",
+        run: function (t) {
+            const zone = r(960, 0, 960, 1080);
+            t.equal(Layout.coverage(zone, zone), 1, "same rect covers fully");
+            t.equal(Layout.coverage(zone, r(0, 0, 960, 1080)), 0, "touching neighbour covers nothing");
+            t.ok(Layout.coverage(zone, r(968, 8, 944, 1064)) > 0.9, "tile with gaps still covers most");
+            t.ok(Layout.coverage(zone, r(1000, 100, 640, 480)) < 0.5, "floating window covers little");
+        },
+    },
+    {
         name: "layout: offset maximize area (second screen, top panel)",
         run: function (t) {
             const s = Layout.detectSnap(r(1920, 44, 1280, 1396), OFFSET_AREA, 0);
