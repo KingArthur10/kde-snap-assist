@@ -25,7 +25,9 @@ Window {
     /// the title lets WindowManager recognise it and never offer it as a candidate.
     readonly property string overlayTitle: "kde-snap-assist-overlay"
     title: overlayTitle
-    flags: Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint
+    /// KWin 6 only routes real key presses to its internal windows when they are tool
+    /// (or popup) windows; as a plain window the keys went to the window behind it.
+    flags: Qt.Tool | Qt.FramelessWindowHint
     visible: false
     color: "transparent"
 

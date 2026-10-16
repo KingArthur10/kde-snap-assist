@@ -14,7 +14,7 @@ function log(line) {
 }
 
 function request(verb, arg) {
-    // Serviced by tests/session.sh (spawning windows, screenshots).
+    // Serviced by tests/session.sh (spawning windows, typing keys, screenshots).
     console.warn("REQUEST " + verb + " " + arg);
 }
 

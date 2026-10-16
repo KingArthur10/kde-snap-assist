@@ -1,7 +1,7 @@
 #!/bin/bash
 # Inner half of run-tests.sh: runs inside the isolated D-Bus session.
 # Starts a headless KWin, loads the test runner script and services its
-# requests (spawning test windows, taking screenshots) until it finishes.
+# requests (spawning test windows, typing real keys, taking screenshots) until it finishes.
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -26,6 +26,8 @@ cleanup() {
     jobs -p | xargs -r kill 2>/dev/null
     wait 2>/dev/null
     cat "$KWIN_LOG"
+    [ -s "$XDG_STATE_HOME/eiskeys.log" ] && cat "$XDG_STATE_HOME/eiskeys.log"
+    [ -s "$XDG_STATE_HOME/keys.log" ] && sed "s/^/window key: /" "$XDG_STATE_HOME/keys.log"
 }
 trap cleanup EXIT
 
@@ -36,7 +38,7 @@ for _ in $(seq 100); do
 done
 
 spawn_window() {
-    WAYLAND_DISPLAY=$SOCK GDK_BACKEND=wayland python3 -I "$HERE/testwin.py" "$1" >/dev/null 2>&1 &
+    KSA_KEYLOG="$XDG_STATE_HOME/keys.log" WAYLAND_DISPLAY=$SOCK GDK_BACKEND=wayland python3 -I "$HERE/testwin.py" "$1" >/dev/null 2>&1 &
 }
 
 ID=$(qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.loadDeclarativeScript \
@@ -51,6 +53,7 @@ while kill -0 $KWIN_PID 2>/dev/null; do
         read -r verb arg <<< "${requests[$handled]}"
         case "$verb" in
             spawn) spawn_window "$arg" ;;
+            keys) python3 -I "$HERE/eiskeys.py" $arg >> "$XDG_STATE_HOME/eiskeys.log" 2>&1 & ;;
             screenshot)
                 if [ -n "$KSA_SCREENSHOT_DIR" ]; then
                     WAYLAND_DISPLAY=$SOCK spectacle -b -n -f -o "$KSA_SCREENSHOT_DIR/$arg.png" >/dev/null 2>&1 &

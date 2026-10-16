@@ -151,6 +151,8 @@ Item {
             const env = {
                 sut: sut, workspace: workspace, win: win, area: area, quickTile: quickTile,
                 fixtures: fixtureWindows,
+                // types real keys through KWin's input stack, e.g. env.keys("Right", "Return")
+                keys: function (...chords) { Harness.request("keys", chords.join(" ")); },
                 // `yield env.screenshot(name)`: holds the scene until spectacle has captured it
                 screenshot: function (name) {
                     if (!screenshotsEnabled) return 0;

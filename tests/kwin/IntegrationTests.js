@@ -80,6 +80,50 @@ var tests = [
         },
     },
     {
+        name: "real keys reach the assist, not the snapped window behind it",
+        config: cfg(),
+        run: function* (t, env) {
+            env.quickTile(env.win("Alpha"), "Right");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 300;
+            env.keys("Right");
+            yield t.until(() => env.sut.focusedIndex === 1, "Right arrow to move the highlight", 3000);
+            const chosen = env.sut.clients[1];
+            env.keys("Return");
+            yield t.until(() => !env.sut.activated, "Return to select", 3000);
+            yield 200;
+            t.rectNear(chosen && chosen.frameGeometry, r(0, 0, 960, 1080), "highlighted window fills the left half");
+        },
+    },
+    {
+        name: "real Escape closes the assist and gives the keyboard back",
+        config: cfg(),
+        run: function* (t, env) {
+            const alpha = env.win("Alpha");
+            env.quickTile(alpha, "Right");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 300;
+            env.keys("Escape");
+            yield t.until(() => !env.sut.activated, "Escape to dismiss", 3000);
+            yield 300;
+            t.equal(env.workspace.activeWindow, alpha, "snapped window has focus again");
+        },
+    },
+    {
+        name: "real Tab and Down keys reach the assist",
+        config: cfg(),
+        run: function* (t, env) {
+            env.quickTile(env.win("Alpha"), "Left");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 300;
+            env.keys("Down");
+            yield t.until(() => env.sut.focusedIndex === 2, "Down to move the highlight a row (two columns)", 3000);
+            env.keys("Tab");
+            yield t.until(() => Math.abs(env.sut.assistRect().height - 540) < 1, "Tab to switch to a quarter", 3000);
+            t.rectNear(env.sut.assistRect(), r(960, 0, 960, 540), "assist now in the top-right quarter");
+        },
+    },
+    {
         name: "keyboard: arrows move focus, Return selects the focused card",
         config: cfg(),
         run: function* (t, env) {

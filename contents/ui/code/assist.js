@@ -35,8 +35,6 @@ function delayedShowAssist(dx, dy, height, width, window){
 
     setTimeout(function(){
         WindowManager.trackSnapped(window ?? KWinComponents.Workspace.activeWindow);
-        main.requestActivate();
-        keyboardHandler.forceActiveFocus();
         showAssist(dx, dy, height ?? currentScreenHeight, width ?? currentScreenWidth - window.width);
     }, 3);
     return true;
@@ -71,6 +69,9 @@ function showAssist(dx, dy, height, width) {
         mainWindow.y = 0;
     }
     main.show();
+    /// activating only works once the window is shown; KWin sends keys to the active window
+    main.requestActivate();
+    keyboardHandler.forceActiveFocus();
 
     fadeInAnimation.restart();
     scrollView.ScrollBar.vertical.position = 0;
