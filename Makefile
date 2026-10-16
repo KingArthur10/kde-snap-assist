@@ -58,8 +58,10 @@ enable:
 	kwriteconfig6 --file kwinrc --group Plugins --key $(ID)Enabled true
 	qdbus-qt6 org.kde.KWin /KWin reconfigure
 
+# Disabling alone leaves the script running until KWin restarts, so unload it too.
 disable:
 	kwriteconfig6 --file kwinrc --group Plugins --key $(ID)Enabled false
+	qdbus-qt6 org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript $(ID) >/dev/null
 	qdbus-qt6 org.kde.KWin /KWin reconfigure
 
 # KWin only reloads a script's code when it is unloaded and loaded again.
