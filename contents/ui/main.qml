@@ -10,25 +10,27 @@ import QtQuick.Window
 import QtQuick.Controls
 import org.kde.kirigami as Kirigami
 import org.kde.kwin as KWinComponents
-import org.kde.plasma.core as PlasmaCore
-import QtQml.Models
-import org.kde.plasma.components as PlasmaComponents
-import Qt5Compat.GraphicalEffects
 
 import "components"
 import "./code/assist.js" as AssistManager
 import "./code/keyboard.js" as KeyboardManager
 import "./code/windows.js" as WindowManager
+/// The code/*.js files run in this document's scope and use every namespace
+/// imported here, including Layout, which this file does not reference itself.
+import "./code/layout.js" as Layout // qmllint disable unused-imports
 
 Window {
     id: main
+    /// KWin lists this overlay in Workspace.windows like any other window;
+    /// the title lets WindowManager recognise it and never offer it as a candidate.
+    readonly property string overlayTitle: "kde-snap-assist-overlay"
+    title: overlayTitle
     flags: Qt.FramelessWindowHint | Qt.X11BypassWindowManagerHint
-    visible: true
-    color: "#50ff0000"
-    x: 0
-    y: 0
-    height: 1080//currentScreenHeight
-    width: 1920//currentScreenWidth
+    visible: false
+    color: "transparent"
+
+    /// Config values that win over KWin.readConfig (used by the test suite).
+    property var configOverrides: ({})
 
     /// service variables
     property bool activated: false
@@ -47,6 +49,7 @@ Window {
     property int gridSpacing: 25 /// maybe should be configurable?
     property bool cycleKeyboard: false /// not in use
     property bool preventFromShowing: false /// flag used to temporarly prevent assist from showing when not desired
+    property bool selecting: false /// a candidate is being placed; its activation must not close the assist
 
     property int transitionDurationOnAssistMove: 0 /// separate transition duration when moving assist window with the Tab key
     property var visibleWindowPreviews: ([]) /// stores windows which should be constantly displayed (snapped windows)
@@ -91,7 +94,7 @@ Window {
     property bool raiseSnappedTogether
     property bool fillOnSnappedClose
     property bool fillOnSnappedMove
-    property int fitWindowInGroupBehind
+    property bool fitWindowInGroupBehind
     property bool rememberWindowSizes
     property bool showDesktopBackground
     property int desktopBackgroundBlur
@@ -107,19 +110,13 @@ Window {
         function onWindowAdded(window) {
             WindowManager.addListenersToClient(window);
         }
-        // TODO connect to windows
-        // function onClientFullScreenSet(client, isFullScreen, isUser) {
-        //     /// we likely don't want assist to be shown when user exited fullscreen mode
-        //     if (isFullScreen == false) AssistManager.preventAssistFromShowing();
-        // }
         function onVirtualScreenSizeChanged(){
             /// Fix for assist getting shown when screen size changed
             AssistManager.preventAssistFromShowing(1000, () => AssistManager.hideAssist(false));
         }
     }
 
-    /// Doesn't work for some reason :(
-    /// hence the recommendation to re-enable the script on configs page
+    /// KWin restarts the script when its settings are saved, so this is a fallback
     Connections {
         target: KWinComponents.Options
         function onConfigChanged() { loadConfigs(); }
@@ -131,8 +128,6 @@ Window {
         for (let i = 0; i < windows.length; ++i) {
             WindowManager.addListenersToClient(windows[i]);
         }
-
-        main.hide();
     }
 
     /// Desktop preview on background
@@ -160,7 +155,7 @@ Window {
     /// click on empty space to close
     MouseArea {
         anchors.fill: parent
-        onClicked: {  if (activated) AssistManager.hideAssist(true); }
+        onClicked: main.dismiss()
     }
 
     /// Main view
@@ -185,16 +180,20 @@ Window {
         }
 
         /// fade-in animation on appear
-        NumberAnimation on opacity {
+        NumberAnimation {
             id: fadeInAnimation
+            target: mainWindow
+            property: "opacity"
             from: 0
             to: 1
             duration: transitionDuration
         }
 
         /// fade-out animation on cancel (played only in 'fullscreen background' mode)
-        NumberAnimation on opacity {
+        NumberAnimation {
             id: fadeOutAnimation
+            target: mainWindow
+            property: "opacity"
             from: 1
             to: 0
             duration: transitionDuration
@@ -224,6 +223,7 @@ Window {
 
                         Rectangle {
                             id: clientItem
+                            readonly property var window: modelData
                             color: cardColor
                             radius: borderRadius
                             width:  cardWidth
@@ -292,9 +292,7 @@ Window {
                                 onExited: {
                                     clientItem.color = cardColor;
                                 }
-                                onClicked: {
-                                    WindowManager.animateWindowPreviewToSelect(index, modelData);
-                                }
+                                onClicked: main.selectCandidate(index)
                             }
 
                             Behavior on opacity { PropertyAnimation {duration: transitionDuration } }
@@ -309,7 +307,7 @@ Window {
             y: 20
             icon.name: "window-close"
             ToolTip.text: qsTr("Close snap assist (Esc)")
-            onClicked: AssistManager.hideAssist(true);
+            onClicked: main.dismiss()
         }
 
         /// Change layout button
@@ -395,19 +393,47 @@ Window {
         }
     }
 
-    /// Reusable timer,
-    /// used for regular actions on each assist reveal and hide
+    /// One-shot timers. Each call gets its own Timer, so overlapping
+    /// timeouts never fire each other's callbacks.
+    Component {
+        id: timeoutComponent
+        Timer { repeat: false }
+    }
+
+    function setTimeout(callback, delay) {
+        const t = timeoutComponent.createObject(main, { interval: Math.max(0, delay) });
+        t.triggered.connect(t, function () {
+            t.destroy();
+            callback();
+        });
+        t.start();
+        return t;
+    }
+
+    /// Debounces snap detection: a snap produces a burst of geometry changes,
+    /// only the settled geometry is inspected.
     Timer {
-        id: timer
-        function setTimeout(cb, delayTime) {
-            timer.interval = delayTime;
-            timer.repeat = false;
-            timer.triggered.connect(cb);
-            timer.triggered.connect(function release () {
-                timer.triggered.disconnect(cb); // This is important
-                timer.triggered.disconnect(release); // This is important as well
-            });
-            timer.start();
+        id: snapCheckTimer
+        property var pendingWindow: null
+        repeat: false
+        onTriggered: {
+            const window = pendingWindow;
+            pendingWindow = null;
+            WindowManager.onWindowResize(window);
+        }
+    }
+
+    /// Keeps the assist suppressed while the script itself moves windows.
+    /// Restarting extends the window instead of letting an older call end it early.
+    Timer {
+        id: preventTimer
+        property var callbacks: []
+        repeat: false
+        onTriggered: {
+            preventFromShowing = false;
+            const pending = callbacks;
+            callbacks = [];
+            pending.forEach(cb => cb());
         }
     }
 
@@ -422,67 +448,104 @@ Window {
         anchors.fill: parent
         id: keyboardHandler
         Keys.onPressed: function(event) {
-            if (activated == false) return;
-
-               switch (event.key) {
-                case Qt.Key_Escape:
-                    AssistManager.hideAssist(true);
-                    break;
-                case Qt.Key_Left:
-                    KeyboardManager.moveFocusLeft();
-                    break;
-                case Qt.Key_Right:
-                    KeyboardManager.moveFocusRight();
-                    break;
-                case Qt.Key_Up:
-                    KeyboardManager.moveFocusUp();
-                    break;
-                case Qt.Key_Down:
-                    KeyboardManager.moveFocusDown();
-                    break;
-                case Qt.Key_Return:
-                    WindowManager.animateWindowPreviewToSelect(focusedIndex, clients[focusedIndex]);
-                    break;
-                case Qt.Key_Tab:
-                    AssistManager.switchAssistLayout();
-                    break;
-                }
+            event.accepted = main.handleKey(event.key);
         }
     }
 
+    /// --- public API: used by the views, the keyboard handler and the tests ---
+
+    function handleKey(key) {
+        if (!activated) return false;
+
+        switch (key) {
+        case Qt.Key_Escape:
+            dismiss();
+            return true;
+        case Qt.Key_Left:
+            KeyboardManager.moveFocusLeft();
+            return true;
+        case Qt.Key_Right:
+            KeyboardManager.moveFocusRight();
+            return true;
+        case Qt.Key_Up:
+            KeyboardManager.moveFocusUp();
+            return true;
+        case Qt.Key_Down:
+            KeyboardManager.moveFocusDown();
+            return true;
+        case Qt.Key_Return:
+        case Qt.Key_Enter:
+            selectCandidate(focusedIndex);
+            return true;
+        case Qt.Key_Tab:
+            AssistManager.switchAssistLayout();
+            return true;
+        }
+        return false;
+    }
+
+    /// Place clients[index] into the zone the assist is covering.
+    function selectCandidate(index) {
+        if (!activated || selecting || !clients || index < 0 || index >= clients.length) return;
+        WindowManager.animateWindowPreviewToSelect(index, clients[index]);
+    }
+
+    /// Close the assist without placing anything.
+    function dismiss() {
+        if (activated) AssistManager.hideAssist(true);
+    }
+
+    /// The window shown on the grid card at `index`.
+    function cardWindow(index) {
+        const card = clientsRepeater.itemAt(index);
+        return card ? card.window : null; // qmllint disable missing-property
+    }
+
+    /// The screen area (global coordinates) the assist is offering to fill.
+    function assistRect() {
+        if (immersiveMode)
+            return Qt.rect(mainWindow.x + minDx, mainWindow.y + minDy, mainWindow.width, mainWindow.height);
+        return Qt.rect(main.x, main.y, main.width, main.height);
+    }
+
+    function readConfig(key, defaultValue) {
+        if (configOverrides && configOverrides.hasOwnProperty(key)) return configOverrides[key];
+        return KWin.readConfig(key, defaultValue);
+    }
+
     function loadConfigs() {
-        sortByLastActive = KWin.readConfig("sortByLastActive", true);
-        descendingOrder = KWin.readConfig("descendingOrder", true);
-        showMinimizedWindows = KWin.readConfig("showMinimizedWindows", true);
-        showOtherScreensWindows = KWin.readConfig("showOtherScreensWindows", false);
-        showOtherDesktopsWindows = KWin.readConfig("showOtherDesktopsWindows", false);
-        textColor = KWin.readConfig("textColor", "#ffffff");
-        cardColor = KWin.readConfig("cardColor", "#75475057");
-        hoveredCardColor = KWin.readConfig("hoveredCardColor", "#75d9dde1");
-        backdropColor = KWin.readConfig("backdropColor", "#902a2e32");
-        borderRadius = KWin.readConfig("borderRadius", 5);
-        transitionDuration = KWin.readConfig("transitionDuration", 300);
-        snapDetectPrecision = KWin.readConfig("snapDetectPrecision", 0);
-        delayBeforeShowingAssist = KWin.readConfig("delayBeforeShowingAssist", 100);
-        rememberWindowSizes = KWin.readConfig("rememberWindowSizes", true);
-        showSnappedWindows = KWin.readConfig("showSnappedWindows", true);
-        minimizeSnappedTogether = KWin.readConfig("minimizeSnappedTogether", false);
-        raiseSnappedTogether = KWin.readConfig("raiseSnappedTogether", false);
-        fillOnSnappedClose = KWin.readConfig("fillOnSnappedClose", false);
-        fillOnSnappedMove = KWin.readConfig("fillOnSnappedMove", false);
-        fitWindowInGroupBehind = KWin.readConfig("fitWindowInGroupBehind", false);
-        showDesktopBackground = KWin.readConfig("showDesktopBackground", true);
-        desktopBackgroundBlur = KWin.readConfig("desktopBackgroundBlur", 18);
-        immersiveMode = KWin.readConfig("immersiveMode", true);
-        opacityForMinimized = KWin.readConfig("opacityForMinimized", 0.99);
-        trackSnappedWindows = minimizeSnappedTogether || raiseSnappedTogether || fillOnSnappedClose || !showSnappedWindows;
+        sortByLastActive = readConfig("sortByLastActive", true);
+        descendingOrder = readConfig("descendingOrder", true);
+        showMinimizedWindows = readConfig("showMinimizedWindows", true);
+        showOtherScreensWindows = readConfig("showOtherScreensWindows", false);
+        showOtherDesktopsWindows = readConfig("showOtherDesktopsWindows", false);
+        textColor = readColorConfig("textColor", "#ffffff");
+        cardColor = readColorConfig("cardColor", "#75475057");
+        hoveredCardColor = readColorConfig("hoveredCardColor", "#75d9dde1");
+        backdropColor = readColorConfig("backdropColor", "#902a2e32");
+        borderRadius = readConfig("borderRadius", 5);
+        transitionDuration = readConfig("transitionDuration", 300);
+        snapDetectPrecision = readConfig("snapDetectPrecision", 0);
+        delayBeforeShowingAssist = readConfig("delayBeforeShowingAssist", 100);
+        rememberWindowSizes = readConfig("rememberWindowSizes", true);
+        showSnappedWindows = readConfig("showSnappedWindows", true);
+        minimizeSnappedTogether = readConfig("minimizeSnappedTogether", false);
+        raiseSnappedTogether = readConfig("raiseSnappedTogether", false);
+        fillOnSnappedClose = readConfig("fillOnSnappedClose", false);
+        fillOnSnappedMove = readConfig("fillOnSnappedMove", false);
+        fitWindowInGroupBehind = readConfig("fitWindowInGroupBehind", false);
+        showDesktopBackground = readConfig("showDesktopBackground", true);
+        desktopBackgroundBlur = readConfig("desktopBackgroundBlur", 18);
+        immersiveMode = readConfig("immersiveMode", true);
+        opacityForMinimized = readConfig("opacityForMinimized", 0.99);
+        trackSnappedWindows = minimizeSnappedTogether || raiseSnappedTogether || fillOnSnappedClose || fillOnSnappedMove || fitWindowInGroupBehind || !showSnappedWindows;
         trackActiveWindows = sortByLastActive || fitWindowInGroupBehind;
         if (!showDesktopBackground) immersiveMode = false;
+    }
 
-        /// workaround for configs bug, when boolean gets stored for string values
-        if (textColor == false) textColor = "#ffffff";
-        if (cardColor == false) cardColor = "#75475057";
-        if (hoveredCardColor == false) hoveredCardColor = "#75d9dde1";
-        if (backdropColor == false) backdropColor = "#902a2e32";
+    /// The config dialog has been seen storing a boolean for colour keys; fall back to the default then.
+    function readColorConfig(key, defaultValue) {
+        const value = readConfig(key, defaultValue);
+        return typeof value === "string" && value !== "" ? value : defaultValue;
     }
 }

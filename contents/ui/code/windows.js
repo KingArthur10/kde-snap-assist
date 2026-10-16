@@ -1,4 +1,5 @@
 function animateWindowPreviewToSelect(index, client){
+    selecting = true;
     if (!immersiveMode) {
         selectClient(client);
         onClientSelect(client);
@@ -10,7 +11,12 @@ function animateWindowPreviewToSelect(index, client){
     const item = windowPreviewsRepeater.itemAt(visibleWindowPreviews.length - 1);
     const thumbnail = clientsRepeater.itemAt(index);
 
-    if (!item || !thumbnail) return;
+    if (!item || !thumbnail) {
+        /// nothing to animate, place the window right away
+        selectClient(client);
+        onClientSelect(client);
+        return;
+    }
     if (client.minimized) thumbnail.opacity = 1.0;
     const thumbnailGlobalCoords = thumbnail.mapToGlobal(0,0);
 
@@ -22,16 +28,16 @@ function animateWindowPreviewToSelect(index, client){
     item.width = cardWidth - 6;
     transitionDuration = transitionDurationOnAssistMove;
 
-    timer.setTimeout(function(){
+    setTimeout(function(){
         /// animate to selected new size
         item.x = mainWindow.x - (assistPadding / 2);
         item.y = mainWindow.y - (assistPadding / 2);
-        item.width = mainWindow.width + assistPadding,
+        item.width = mainWindow.width + assistPadding;
         item.height = mainWindow.height + assistPadding;
 
         /// actually select client
         selectClient(client);
-        timer.setTimeout(function(){
+        setTimeout(function(){
             onClientSelect(client);
         }, transitionDuration);
     }, 3);
@@ -42,8 +48,12 @@ function selectClient(client){
     client.shade = false;
     client.minimized = false;
 
-    if (rememberWindowSizes)
+    if (client.tile) {
+        /// a window still attached to a KWin tile would keep that tile's geometry
+        client.tile = null;
+    } else if (rememberWindowSizes) {
         windowSizesBeforeSnap[client.internalId] = { height: client.height, width: client.width };
+    }
 
     client.frameGeometry = immersiveMode ? Qt.rect(
         mainWindow.x - (assistPadding / 2) + minDx,
@@ -60,10 +70,11 @@ function selectClient(client){
 
 function onClientSelect(client){
     KWinComponents.Workspace.activeWindow = client;
+    selecting = false;
 
     if (trackSnappedWindows) {
         removeWindowFromTrack(client.internalId); /// remove from track if was previously snapped
-        snappedWindows.push(client.internalId);
+        trackSnapped(client);
     }
 
     AssistManager.checkToShowNextQuaterAssist(client);
@@ -71,94 +82,88 @@ function onClientSelect(client){
 
 
 /// listeners
+/// Every connection is bound to `main`, so Qt drops it when the script is
+/// unloaded. A plain connect(fn) outlives the script's QML context and makes
+/// KWin crash the next time the signal fires.
 function addListenersToClient(client) {
-    if (!client || client.specialWindow || client.skipSwitcher) return;
+    if (!client || client.specialWindow || client.skipSwitcher || isOwnOverlay(client)) return;
 
-    client.frameGeometryChanged.connect(function() {
-        if (!client.move && !client.resize && activated == false && preventFromShowing == false) {
-            console.error("addListenersToClient -> frameGeometryChanged")
-            if (delayBeforeShowingAssist == 0) {
-                onWindowResize(client);
-            } else {
-                timer.setTimeout(function(){
-                    onWindowResize(client);
-                }, delayBeforeShowingAssist);
-            }
-        }
+    client.frameGeometryChanged.connect(main, function() {
+        if (client.move || client.resize || activated || preventFromShowing) return;
+        scheduleSnapCheck(client);
     });
 
-    client.interactiveMoveResizeStarted.connect(function(){
+    /// KWin may apply the snapped geometry while the move is still in progress
+    client.interactiveMoveResizeFinished.connect(main, function() {
+        if (!activated && !preventFromShowing) scheduleSnapCheck(client);
+    });
+
+    client.interactiveMoveResizeStarted.connect(main, function(){
         if (trackSnappedWindows && !client.resize)
             removeWindowFromTrack(client.internalId, function(group){
                 if (fillOnSnappedMove) fillClosedWindow(client, group);
             });
 
-        if (rememberWindowSizes){
+        if (rememberWindowSizes && client.move) {
             const storedSize = windowSizesBeforeSnap[client.internalId];
             if (storedSize) {
-                client.frameGeometry.height = windowSizesBeforeSnap[client.internalId].height ?? client.height;
-                client.frameGeometry.width = windowSizesBeforeSnap[client.internalId].width ?? client.width;
                 delete windowSizesBeforeSnap[client.internalId];
+                client.frameGeometry = Layout.restoreSizeUnderCursor(client.frameGeometry, storedSize, KWinComponents.Workspace.cursorPos);
             }
         }
     });
 
-    client.closed.connect(function(window){
+    client.closed.connect(main, function(){
         handleWindowClose(client);
     });
 
-    client.desktopsChanged.connect(function(){
+    client.desktopsChanged.connect(main, function(){
         if (trackSnappedWindows && !client.resize) removeWindowFromTrack(client.internalId);
     });
 
-    client.minimizedChanged.connect(function (cl) {
-        if (!trackSnappedWindows || !minimizeSnappedTogether) return;
-        if (cl.minimized) {
-            WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl){ if (cl) cl.minimized = true; });
-        } else {
-            WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl) {
-                if (cl) {
-                    cl.minimized = false;
-                    if (trackActiveWindows) {
-                        const d = new Date();
-                        activationTime[cl.internalId] = d.getTime();
-                    }
-                }
-            });
-        }
+    client.fullScreenChanged.connect(main, function(){
+        /// leaving fullscreen restores a geometry that can look like a snap
+        if (!client.fullScreen) AssistManager.preventAssistFromShowing();
     });
 
-    // client.minimizedChanged.connect(function(c){
-    //         if (!trackSnappedWindows || !minimizeSnappedTogether) return;
-    //         WindowManager.applyActionToAssosiatedSnapGroup(client, function(cl) {
-    //             if (cl) {
-    //                 cl.minimized = false;
-    //                 if (trackActiveWindows) {
-    //                     const d = new Date();
-    //                     activationTime[cl.internalId] = d.getTime();
-    //                 }
-    //             }
-    //         });
-    // });
+    client.minimizedChanged.connect(main, function() {
+        if (!trackSnappedWindows || !minimizeSnappedTogether) return;
+        const minimized = client.minimized;
+        applyActionToAssosiatedSnapGroup(client, function(cl) {
+            if (!cl || cl.minimized === minimized) return;
+            cl.minimized = minimized;
+            if (!minimized && trackActiveWindows) activationTime[cl.internalId] = Date.now();
+        });
+    });
+}
+
+function scheduleSnapCheck(client) {
+    if (delayBeforeShowingAssist <= 0) {
+        onWindowResize(client);
+        return;
+    }
+    snapCheckTimer.pendingWindow = client;
+    snapCheckTimer.interval = delayBeforeShowingAssist;
+    snapCheckTimer.restart();
 }
 
 function onWindowResize(window) {
-    console.error("console.error", window)
-    // print("print", window)
-    if (activated || !window || window.deleted || window.specialWindow || !window.active) return;
+    if (activated || preventFromShowing || !window || window.deleted || window.specialWindow || !window.active) return;
+    if (window.move || window.resize) return;
+
+    const maxArea = KWinComponents.Workspace.clientArea(KWinComponents.Workspace.MaximizeArea, window);
+    const snap = Layout.detectSnap(window.frameGeometry, maxArea, snapDetectPrecision);
+    if (!snap) return;
+
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
     if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) return;
-    const maxArea = KWinComponents.Workspace.clientArea(KWin.MaximizeArea, window);
-    console.error(maxArea.x,maxArea.y,maxArea.width,maxArea.height)
+
     currentScreenWidth = maxArea.width; currentScreenHeight = maxArea.height;
     minDx = maxArea.x; minDy = maxArea.y;
-    const dx = window.x, dy = window.y;
-    const width = window.width, height = window.height;
-    const halfScreenWidth = currentScreenWidth / 2, halfScreenHeight = currentScreenHeight / 2;
 
-      /// store current window for animation
+    /// store current window for animation
     if (immersiveMode) {
         currentWindowId = window.internalId;
         currentWindowPreview.x = window.x - minDx;
@@ -167,136 +172,54 @@ function onWindowResize(window) {
         currentWindowPreview.height = window.height;
     }
 
-    /// Detect if window was snapped
-    /// left/right halves
-    if (isEqual(width, halfScreenWidth) && isEqual(height, currentScreenHeight) && isEqual(dy, minDy)) {
-        if (isEqual(dx, minDx)) {
-            /// show on right half
-            AssistManager.delayedShowAssist(minDx + window.width, window.y, undefined, undefined, window);
-        } else if (isEqual(dx, minDx + halfScreenWidth)) {
-            /// show on left half
-            AssistManager.delayedShowAssist(minDx, minDy, undefined, undefined, window);
-        }
-        columnsCount = 2;
-        layoutMode = 0;
+    layoutMode = snap.mode;
+    switch (snap.mode) {
+    case Layout.LayoutMode.VerticalSplit:
+    case Layout.LayoutMode.HorizontalSplit: {
+        columnsCount = snap.mode === Layout.LayoutMode.VerticalSplit ? 2 : 3;
         filteredClients.push(window);
-
-    /// top/bottom halves
-    } else if (isEqual(width, currentScreenWidth) && isEqual(height, halfScreenHeight) && isEqual(dx, minDx)) {
-        if (isEqual(dy, minDy)) {
-            /// show in bottom half
-            AssistManager.delayedShowAssist(minDx, minDy + halfScreenHeight, halfScreenHeight, currentScreenWidth);
-        } else if (isEqual(dy, minDy + halfScreenHeight)) {
-            /// show in top half
-            AssistManager.delayedShowAssist(minDx, minDy, halfScreenHeight, currentScreenWidth);
-        }
-        columnsCount = 3;
-        layoutMode = 2;
-        filteredClients.push(window);
+        const zone = snap.remaining[0];
+        AssistManager.delayedShowAssist(zone.x, zone.y, zone.height, zone.width, window);
+        break;
     }
-
-    /// quater tiling
-    else if (isEqual(width, halfScreenWidth) && isEqual(height, halfScreenHeight)) {
-        /// define current screen quaters
-            quatersToShowNext = {
-            0: { dx: minDx, dy:  minDy, height: halfScreenHeight, width: halfScreenWidth, },
-            1: { dx: minDx + halfScreenWidth, dy:  minDy, height: halfScreenHeight, width: halfScreenWidth, },
-            2: { dx: minDx, dy: minDy + halfScreenHeight, height: halfScreenHeight, width: halfScreenWidth, },
-            3: { dx: minDx + halfScreenWidth, dy:  minDy + halfScreenHeight, height: halfScreenHeight, width: halfScreenWidth, },
-        };
-
-        /// detect which quater snapped window takes
-        let currentQuater = -1;
-        let l = Object.keys(quatersToShowNext).length;
-
-        for (let i = 0; i < l; i++) {
-            const quater = quatersToShowNext[i];
-            if (isEqual(dx, quater.dx) && isEqual(dy, quater.dy)) {
-                currentQuater = i;
-                delete quatersToShowNext[i];
-                break;
-            }
-        }
-
-        /// show snap assist in next quater
-        if (currentQuater == -1) return;
+    case Layout.LayoutMode.Quarter:
+    case Layout.LayoutMode.Thirds: {
+        /// keys are zone positions, which switchAssistLayout() relies on
+        const zones = snap.mode === Layout.LayoutMode.Quarter ? Layout.quarterZones(maxArea) : Layout.thirdZones(maxArea);
+        quatersToShowNext = {};
+        zones.forEach(function(zone, i) {
+            if (i !== snap.index) quatersToShowNext[i] = { dx: zone.x, dy: zone.y, height: zone.height, width: zone.width };
+        });
         AssistManager.checkToShowNextQuaterAssist(window);
-        layoutMode = 1;
-        columnsCount = 2;
+        break;
     }
-
-    /// 3-in-row tiling
-    else if (isEqual(height, currentScreenHeight)) {
-        const thirdOfScreenWidth = currentScreenWidth / 3;
-        if (isEqual(width, thirdOfScreenWidth)) {
-            /// define current screen thirds
-            quatersToShowNext = {
-                0: { dx: minDx, dy:  minDy, height: currentScreenHeight, width: thirdOfScreenWidth, },
-                1: { dx: minDx + thirdOfScreenWidth, dy:  minDy, height: currentScreenHeight, width: thirdOfScreenWidth, },
-                2: { dx: minDx + (thirdOfScreenWidth * 2), dy: minDy, height: currentScreenHeight, width: thirdOfScreenWidth, },
-            };
-
-            /// detect which quater snapped window takes
-            let currentQuater = -1;
-            let l = Object.keys(quatersToShowNext).length;
-
-            for (let i = 0; i < l; i++) {
-                const quater = quatersToShowNext[i];
-                if (isEqual(dx, quater.dx) && isEqual(dy, quater.dy)) {
-                    currentQuater = i;
-                    delete quatersToShowNext[i];
-                    break;
-                }
-            }
-
-            /// show snap assist in next quater
-            if (currentQuater == -1) return;
-            AssistManager.checkToShowNextQuaterAssist(window);
-            layoutMode = 3;
-            columnsCount = 1;
-        }
-    }
-
-    /// if only one window available, show it in center and bigger
-    if (clients && clients.length == 1) {
-        columnsCount = 1;
-        cardWidth *= 1.2;
-        cardHeight *= 1.2;
     }
 }
 
 function handleWindowFocus(window) {
-    if (ignoreFocusChange) return;
-    if (activated) AssistManager.hideAssist(false);
+    if (ignoreFocusChange || isOwnOverlay(window)) return;
+    if (activated && !selecting) AssistManager.hideAssist(false);
     if (!window || window.specialWindow || window.skipSwitcher) return;
 
     /// Store timestamp of last window activation
-    if (trackActiveWindows) {
-        const d = new Date();
-        activationTime[window.internalId] = d.getTime();
-    }
+    if (trackActiveWindows) activationTime[window.internalId] = Date.now();
 
     /// Raise all snapped windows together
     if (trackSnappedWindows && raiseSnappedTogether && !activated) {
-        const i = snappedWindowGroups.findIndex((group) => group.windows.includes(window.internalId));
-        if (i > -1) {
-            ignoreFocusChange = true;
-            const windows = snappedWindowGroups[i].windows;
-            const l = windows.length;
-            if (l < 2) return;
+        const group = snappedWindowGroups.find((group) => group.windows.includes(window.internalId));
+        if (!group || group.windows.length < 2) return;
 
-            for(let i = 0; i < l; i++) {
-                if (windows[i] !== window.internalId) {
-                    const w = getClientFromId(windows[i]);
-                    if (w && !w.minimized) KWinComponents.Workspace.activeWindow = w;
-                }
-            }
+        ignoreFocusChange = true;
+        group.windows.forEach(function(windowId) {
+            if (windowId === window.internalId) return;
+            const w = getClientFromId(windowId);
+            if (w && !w.minimized) KWinComponents.Workspace.activeWindow = w;
+        });
 
-            KWinComponents.Workspace.activeWindow = window;
-            timer.setTimeout(function(){
-                ignoreFocusChange = false;
-            }, 100);
-        }
+        KWinComponents.Workspace.activeWindow = window;
+        setTimeout(function(){
+            ignoreFocusChange = false;
+        }, 100);
     }
 }
 
@@ -316,77 +239,62 @@ function handleWindowClose(window){
 
 
 /// for snap groups
+function trackSnapped(client) {
+    if (client && client.internalId && !snappedWindows.includes(client.internalId))
+        snappedWindows.push(client.internalId);
+}
+
 function applyActionToAssosiatedSnapGroup(client, callback){
     if (!client || !client.internalId) return;
 
-    const i = snappedWindowGroups.findIndex((group) => group.windows.includes(client.internalId));
-    if (i > -1) {
-        const windows = snappedWindowGroups[i].windows;
-        windows.forEach(windowId => callback(getClientFromId(windowId)));
-    }
+    const group = snappedWindowGroups.find((group) => group.windows.includes(client.internalId));
+    if (group) group.windows.forEach(windowId => callback(getClientFromId(windowId)));
 }
 
 function removeWindowFromTrack(windowId, callback){
     /// Removes provided windowId from tracking of snapped windows
     if (!windowId) return;
 
-    let i2 = -1;
-    const i = snappedWindowGroups.findIndex(function(group) {
-        i2 = group.windows.indexOf(windowId);
-        return i2 > -1;
-    });
+    const i = snappedWindowGroups.findIndex(group => group.windows.includes(windowId));
+    if (i < 0) return;
 
-    if (i > -1) {
-        snappedWindowGroups[i].windows.splice(i2, 1);
-        if (callback) callback(snappedWindowGroups[i]);
-        const remainingWindowsCount = snappedWindowGroups[i].windows.length;
-        if (remainingWindowsCount < 1) snappedWindowGroups.splice(i, 1); /// delete empty group
-        else if (remainingWindowsCount === 1) {
-            /// set timer to delete group if not populated in few seconds
+    const group = snappedWindowGroups[i];
+    group.windows.splice(group.windows.indexOf(windowId), 1);
+    if (callback) callback(group);
 
-            const remainingWindowId = snappedWindowGroups[i].windows[0];
-            setOneTimeTimeout(function(){
-                /// group index may have changed
-                const i3 = snappedWindowGroups.findIndex((group) => group.windows.indexOf(remainingWindowId) > -1 && group.windows.length < 2);
-                if (i3 > -1) snappedWindowGroups.splice(i3, 1);
-            }, 6000);
-        }
+    if (group.windows.length < 1) {
+        snappedWindowGroups.splice(snappedWindowGroups.indexOf(group), 1); /// delete empty group
+    } else if (group.windows.length === 1) {
+        /// delete group if not populated again in few seconds
+        setTimeout(function(){
+            const index = snappedWindowGroups.indexOf(group);
+            if (index > -1 && group.windows.length < 2) snappedWindowGroups.splice(index, 1);
+        }, 6000);
     }
 }
 
 function fillClosedWindow(closedWindow, group){
     /// fill the free area when snapped window closed or moved
     const closedWindowGeom = closedWindow.frameGeometry;
-    const remainingWindows = group.windows;
-    for(let i = 0, l = remainingWindows.length; i < l; i++){
-        const window = getClientFromId(remainingWindows[i]);
-        if (!window) continue;
-        if (window.internalId == closedWindow.internalId) continue;
+    const area = Layout.rect(minDx, minDy, currentScreenWidth, currentScreenHeight);
+    const third = currentScreenWidth / 3;
+
+    for (const windowId of group.windows) {
+        const window = getClientFromId(windowId);
+        if (!window || window.internalId === closedWindow.internalId) continue;
         const windowGeom = window.frameGeometry;
         if (!windowGeom) continue;
 
         /// special handling for 3-in-row layout
         /// when closed 3rd window, we don't want the first one to try filling it
-        if (closedWindowGeom.width == currentScreenWidth / 3 && closedWindowGeom.x == minDx + (currentScreenWidth / 3 * 2))
-            if (windowGeom.width == currentScreenWidth / 3 && windowGeom.x == minDx) continue;
+        if (isEqual(closedWindowGeom.width, third) && isEqual(closedWindowGeom.x, minDx + third * 2)
+                && isEqual(windowGeom.width, third) && isEqual(windowGeom.x, minDx))
+            continue;
 
-        if (windowGeom.x == closedWindowGeom.x && windowGeom.width == closedWindowGeom.width){
-            /// expand vertically
+        const filled = Layout.fillGeometry(windowGeom, closedWindowGeom, area, snapDetectPrecision);
+        if (filled) {
             AssistManager.preventAssistFromShowing();
-            let newHeight = windowGeom.height + closedWindowGeom.height;
-            if (newHeight > currentScreenHeight) newHeight = currentScreenHeight;
-            window.frameGeometry = Qt.rect(windowGeom.x,
-                                           windowGeom.y - (windowGeom.y > closedWindowGeom.y ? closedWindowGeom.height : 0),
-                                           windowGeom.width, newHeight);
-            break;
-        } else if(windowGeom.y == closedWindowGeom.y && windowGeom.height == closedWindowGeom.height) {
-            /// expand horizontally
-            AssistManager.preventAssistFromShowing();
-            let newWidth = windowGeom.width + closedWindowGeom.width;
-            if (newWidth > currentScreenWidth) newWidth = currentScreenWidth;
-            window.frameGeometry = Qt.rect(
-                windowGeom.x - (windowGeom.x > closedWindowGeom.x ? closedWindowGeom.width : 0),
-                windowGeom.y, newWidth, windowGeom.height);
+            window.frameGeometry = Qt.rect(filled.x, filled.y, filled.width, filled.height);
             break;
         }
     }
@@ -397,65 +305,60 @@ function windowFitsInSnapGroup(client){
     /// requires track activation time and raise snapped windows together
 
     /// find last active client
-    let lastActiveWindowId = -1, lastActiveTime = -1;
+    let lastActiveWindowId = null, lastActiveTime = -1;
     const activeClientId = KWinComponents.Workspace.activeWindow ? KWinComponents.Workspace.activeWindow.internalId : null;
     Object.keys(activationTime).forEach(function(key) {
-        if(activationTime[key] > lastActiveTime && key != client.internalId && key != activeClientId) {
+        if (activationTime[key] > lastActiveTime && key != client.internalId && key != activeClientId) {
             const c = getClientFromId(key);
-            if (c && !c.minimized && c.output == KWinComponents.Workspace.activeScreen && !c.desktops.length || c.desktops.includes(KWinComponents.Workspace.currentDesktop)) {
+            if (c && !c.minimized && c.output === KWinComponents.Workspace.activeScreen && isOnCurrentDesktop(c)) {
                 lastActiveWindowId = c.internalId;
                 lastActiveTime = activationTime[key];
             }
         }
     });
-    if (lastActiveWindowId < 0) return false;
+    if (lastActiveWindowId === null) return false;
 
     /// find if it belongs to snap group
-    const indexOfGroup = snappedWindowGroups.findIndex((group) => group.windows.includes(lastActiveWindowId));
-    if (indexOfGroup < 0) return false;
+    const group = snappedWindowGroups.find((group) => group.windows.includes(lastActiveWindowId));
+    if (!group) return false;
 
     /// check rest of windows in that group
-    const snappedWindows = snappedWindowGroups[indexOfGroup].windows;
-    let intercectsWithAnyOtherWindow = false;
+    let intersectsWithAnyOtherWindow = false;
 
-    for (let i = 0, l = snappedWindows.length; i < l; i++) {
-        const w = getClientFromId(snappedWindows[i]);
+    for (let i = 0, l = group.windows.length; i < l; i++) {
+        const w = getClientFromId(group.windows[i]);
         if (!w) continue;
 
-        if (w.y == client.y && w.height == client.height && w.width > client.width) {
+        if (isEqual(w.y, client.y) && isEqual(w.height, client.height) && w.width > client.width) {
             /// reduce window width to fit new window in layout
-            snappedWindowGroups[indexOfGroup].windows.push(client.internalId);
+            group.windows.push(client.internalId);
             AssistManager.preventAssistFromShowing();
-            const newWidth = w.frameGeometry.width - client.width;
-            w.frameGeometry = Qt.rect(w.frameGeometry.x + (w.x == client.x ? client.width : 0), w.frameGeometry.y, newWidth, w.frameGeometry.height);
+            const g = w.frameGeometry;
+            w.frameGeometry = Qt.rect(g.x + (isEqual(w.x, client.x) ? client.width : 0), g.y, g.width - client.width, g.height);
             return true;
 
-        } else if (w.x == client.x && w.width == client.width && w.height > client.height) {
+        } else if (isEqual(w.x, client.x) && isEqual(w.width, client.width) && w.height > client.height) {
             /// reduce window height to fit new window in layout
-            snappedWindowGroups[indexOfGroup].windows.push(client.internalId);
+            group.windows.push(client.internalId);
             AssistManager.preventAssistFromShowing();
-            const newHeight = w.frameGeometry.height - client.height;
-            w.frameGeometry = Qt.rect(w.frameGeometry.x, w.frameGeometry.y + (w.y == client.y ? client.height : 0), w.frameGeometry.width, newHeight);
+            const g = w.frameGeometry;
+            w.frameGeometry = Qt.rect(g.x, g.y + (isEqual(w.y, client.y) ? client.height : 0), g.width, g.height - client.height);
             return true;
 
-        } else if (w.x == client.x && w.y == client.y && w.height == client.height && w.width == client.width) {
+        } else if (isEqual(w.x, client.x) && isEqual(w.y, client.y) && isEqual(w.height, client.height) && isEqual(w.width, client.width)) {
             /// replace window in group with newly snapped window
-            snappedWindowGroups[indexOfGroup].windows.splice(i, 1);
-            snappedWindowGroups[indexOfGroup].windows.push(client.internalId);
+            group.windows.splice(i, 1);
+            group.windows.push(client.internalId);
             return true;
         }
 
-        /// check if windows intercept
-        if (intercectsWithAnyOtherWindow == false) {
-            if (windowRectanglesIntersect(w.x, w.y, w.x + w.width, w.y + w.height, client.x, client.y, client.x + client.width, client.y + client.height)) {
-                intercectsWithAnyOtherWindow = true;
-            }
-        }
+        if (!intersectsWithAnyOtherWindow && Layout.rectsIntersect(w.frameGeometry, client.frameGeometry))
+            intersectsWithAnyOtherWindow = true;
     }
 
-    /// if window does not intercect with other windows in the group, let it in
-    if (intercectsWithAnyOtherWindow == false) {
-        snappedWindowGroups[indexOfGroup].windows.push(client.internalId);
+    /// if window does not intersect with other windows in the group, let it in
+    if (!intersectsWithAnyOtherWindow) {
+        group.windows.push(client.internalId);
         AssistManager.preventAssistFromShowing();
         return true;
     }
@@ -466,59 +369,41 @@ function windowFitsInSnapGroup(client){
 
 /// utility functions
 function isEqual(a, b) {
-    /// for compatibility with scripts like Window Gap
-    return a - b <= snapDetectPrecision && a - b >= -snapDetectPrecision;
+    /// tolerance helps with fractional geometry and scripts like Window Gap
+    return Layout.isNear(a, b, snapDetectPrecision);
 }
 
 function getClientFromId(windowId){
-    //return workspace.getClient(windowId); /// doesn't work on Wayland
-    if (!allClients) allClients = Object.values(KWinComponents.Workspace.windows);
-    return allClients.find((el) => el.internalId == windowId);
+    return KWinComponents.Workspace.windows.find((el) => el.internalId == windowId) || null;
+}
+
+function isOwnOverlay(client) {
+    /// KWin's internal windows (this overlay included) have no client process or class
+    return !!client && (client.caption === overlayTitle || (client.pid === -1 && !client.resourceClass));
+}
+
+function isOnCurrentDesktop(client) {
+    return client.onAllDesktops || client.desktops.includes(KWinComponents.Workspace.currentDesktop);
 }
 
 function shouldShowWindow(client) {
+    if (!client || client.deleted || isOwnOverlay(client)) return false;
     if (filteredClients.includes(client)) return false;
-    if (client.active || client.specialWindow) return false;
+    if (client.active || client.specialWindow || client.skipSwitcher) return false;
     if (!showMinimizedWindows && client.minimized) return false;
     if (!showOtherScreensWindows && client.output !== KWinComponents.Workspace.activeScreen) return false;
-    if (!showOtherDesktopsWindows && !client.desktops.length || !client.desktops.includes(KWinComponents.Workspace.currentDesktop)) return false;
-    if (!showSnappedWindows && snappedWindowGroups.findIndex(group => group.windows.includes(client.internalId) && group.windows.length > 1) > -1) return false;
+    if (!showOtherDesktopsWindows && !isOnCurrentDesktop(client)) return false;
+    if (!showSnappedWindows && snappedWindowGroups.some(group => group.windows.includes(client.internalId) && group.windows.length > 1)) return false;
     if (client.activities.length > 0 && !client.activities.includes(KWinComponents.Workspace.currentActivity)) return false;
     return true;
 }
 
-function sortClientsByLastActive() {
-    clients = clients.sort(function(a, b) {
-        const windowIdA = a.internalId, windowIdB = b.internalId;
-        if (activationTime[windowIdA] && !activationTime[windowIdB]) return 1;
-        if (!activationTime[windowIdA] && activationTime[windowIdB]) return -1;
-        return activationTime[windowIdA] - activationTime[windowIdB];
+/// Oldest activation first; windows never activated come first.
+function sortedByLastActive(list) {
+    return list.slice().sort(function(a, b) {
+        const timeA = activationTime[a.internalId], timeB = activationTime[b.internalId];
+        if (timeA && !timeB) return 1;
+        if (!timeA && timeB) return -1;
+        return (timeA || 0) - (timeB || 0);
     });
-}
-
-/// One-time timer, when we want multiple timers run in parallel
-function setOneTimeTimeout(cb, delayTime){
-    function Timer() {
-        return Qt.createQmlObject("import QtQuick 2.0; Timer {}", main);
-    }
-
-    const timer = new Timer();
-    timer.interval = delayTime;
-    timer.repeat = false;
-    timer.triggered.connect(function(){
-        cb();
-        timer.destroy();
-    });
-    timer.start();
-}
-
-function windowRectanglesIntersect(
-    minAx, minAy, maxAx, maxAy,
-    minBx, minBy, maxBx, maxBy) {
-    const aLeftOfB = maxAx < minBx;
-    const aRightOfB = minAx > maxBx;
-    const aAboveB = minAy > maxBy;
-    const aBelowB = maxAy < minBy;
-
-    return maxAx > minBx && minAx < maxBx && minAy < maxBy && maxAy > minBy;
 }

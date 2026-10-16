@@ -1,7 +1,7 @@
-import QtQuick 2.12
-import QtQuick.Window 2.12
-import QtGraphicalEffects 1.12
-import org.kde.kwin 2.0 as KWinComponents
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Window
+import org.kde.kwin as KWinComponents
 
 Item {
     y: - ((immersiveMode ? mainWindow.y : main.y) - minDy)
@@ -10,19 +10,21 @@ Item {
     width: currentScreenWidth
     visible: showDesktopBackground && activated
 
-    KWinComponents.ThumbnailItem {
-        wId: desktopWindowId
+    KWinComponents.WindowThumbnail {
         id: desktopBackground
+        wId: desktopWindowId
         anchors.fill: parent
+        visible: desktopBackgroundBlur <= 0
     }
 
     /// configurable blur
-    FastBlur {
-        id: blurBackground
+    MultiEffect {
         anchors.fill: parent
-        source: desktopBackground
-        radius: desktopBackgroundBlur
-        cached: false
+        source: desktopBackground // qmllint disable incompatible-type
         visible: desktopBackgroundBlur > 0
+        blurEnabled: true
+        blurMax: 64
+        blur: Math.min(desktopBackgroundBlur / 64, 1.0)
+        autoPaddingEnabled: false
     }
 }

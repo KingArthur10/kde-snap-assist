@@ -1,41 +1,50 @@
 /// assist
+/// Shows the assist over the given zone. Returns false (and shows nothing)
+/// when there is no window to offer.
 function delayedShowAssist(dx, dy, height, width, window){
-    allClients = Object.values(KWinComponents.Workspace.windows);
-    clients = allClients.filter(c => WindowManager.shouldShowWindow(c));
-    if (clients.length == 0) return;
+    allClients = KWinComponents.Workspace.windows.slice();
+    let candidates = allClients.filter(c => WindowManager.shouldShowWindow(c));
+    if (candidates.length == 0) return false;
+
+    /// build the final order first: the Repeater model must not be mutated in place
+    if (sortByLastActive) candidates = WindowManager.sortedByLastActive(candidates);
+    if (descendingOrder) candidates.reverse();
+    clients = candidates;
 
     cardWidth = currentScreenWidth / 5;
     cardHeight = cardWidth / 1.68;
+    if (clients.length == 1) {
+        /// if only one window available, show it in center and bigger
+        columnsCount = 1;
+        cardWidth *= 1.2;
+        cardHeight *= 1.2;
+    }
     lastActiveClient = KWinComponents.Workspace.activeWindow;
 
-    timer.setTimeout(function(){
-        const w = window ?? KWinComponents.Workspace.activeWindow;
-        if (w && w.internalId) snappedWindows.push(w.internalId);
+    if (immersiveMode && filteredClients.length <= 1) {
+        visibleWindowPreviews = clients.slice();
+        notificationPreviews = allClients.filter(c => c.notification);
+    }
+
+    /// find current desktop background
+    if (showDesktopBackground) {
+        const desktopWindow = allClients.find((c) => c.desktopWindow && c.output === KWinComponents.Workspace.activeScreen);
+        desktopWindowId = desktopWindow ? desktopWindow.internalId : null;
+    }
+
+    setTimeout(function(){
+        WindowManager.trackSnapped(window ?? KWinComponents.Workspace.activeWindow);
         main.requestActivate();
         keyboardHandler.forceActiveFocus();
         showAssist(dx, dy, height ?? currentScreenHeight, width ?? currentScreenWidth - window.width);
     }, 3);
-
-    if (sortByLastActive) WindowManager.sortClientsByLastActive();
-    if (immersiveMode && filteredClients.length <= 1) {
-        visibleWindowPreviews = clients;
-        notificationPreviews = allClients.filter(c => c.notification);
-    }
-    if (descendingOrder) clients = clients.reverse();
-
-    /// find current desktop background
-    if (showDesktopBackground) {
-        const indexOfDesktopWindow = allClients.findIndex((c) => c.desktopWindow && c.output === KWinComponents.Workspace.activeScreen);
-        if (indexOfDesktopWindow < 0) return;
-        desktopWindowId = allClients[indexOfDesktopWindow].internalId;
-    }
+    return true;
 }
 
 function showAssist(dx, dy, height, width) {
     activated = true;
     showRegularGridPreviews = true;
     focusedIndex = 0;
-    main.showNormal();
 
     if (immersiveMode) {
         /// need separation between the window and main view
@@ -46,8 +55,8 @@ function showAssist(dx, dy, height, width) {
 
         mainWindow.width = width - assistPadding;
         mainWindow.height = height - assistPadding;
-        mainWindow.x = dx - (immersiveMode ? minDx : 0) + (assistPadding / 2);
-        mainWindow.y = dy - (immersiveMode ? minDy : 0) + (assistPadding / 2);
+        mainWindow.x = dx - minDx + (assistPadding / 2);
+        mainWindow.y = dy - minDy + (assistPadding / 2);
     } else {
         main.width = width;
         main.height = height;
@@ -59,6 +68,7 @@ function showAssist(dx, dy, height, width) {
         mainWindow.x = 0;
         mainWindow.y = 0;
     }
+    main.show();
 
     fadeInAnimation.restart();
     scrollView.ScrollBar.vertical.position = 0;
@@ -69,10 +79,10 @@ function showAssist(dx, dy, height, width) {
 
 function preventAssistFromShowing(delay, callback){
     preventFromShowing = true;
-    timer.setTimeout(function(){
-        preventFromShowing = false;
-        if (callback) callback();
-    }, delay ?? 300);
+    snapCheckTimer.stop();
+    if (callback) preventTimer.callbacks = [...preventTimer.callbacks, callback];
+    preventTimer.interval = Math.max(delay ?? 300, preventTimer.running ? preventTimer.interval : 0);
+    preventTimer.restart();
 }
 
 function hideAssist(shouldFocusLastClient) {
@@ -80,17 +90,14 @@ function hideAssist(shouldFocusLastClient) {
         /// when assist was called without selecting any item
         animateWindowPreviewsOnCancel(function(){actuallyHideAssist(shouldFocusLastClient)});
     } else {
-        actuallyHideAssist();
+        actuallyHideAssist(shouldFocusLastClient);
     }
 }
 
 function actuallyHideAssist(shouldFocusLastClient){
     activated = false;
     transitionDurationOnAssistMove = 0;
-    main.x = mainWindow.width * 2;
-    main.y = mainWindow.height * 2;
-    main.width = 0;
-    main.height = 0;
+    main.hide();
 
     /// gets called when assist closed without selecting item
     if (shouldFocusLastClient == true) {
@@ -103,9 +110,8 @@ function finishSnap(success){
     /// gets called when close assist, and no other assists awaiting to show
     if (success == true && trackSnappedWindows && snappedWindows.length > 1) {
         /// store snapped windows
-        const d = new Date();
         snappedWindowGroups.push({
-            timestamp: d.getTime(),
+            timestamp: Date.now(),
             windows: snappedWindows
         });
     }
@@ -116,6 +122,7 @@ function finishSnap(success){
     visibleWindowPreviews = [];
     quatersToShowNext = {};
     lastActiveClient = null;
+    selecting = false;
 }
 
 
@@ -129,10 +136,16 @@ function checkToShowNextQuaterAssist(lastSelectedClient){
         if (lastSelectedClient) filteredClients.push(lastSelectedClient);
         const nextQuater = quatersToShowNext[keys[0]];
         delete quatersToShowNext[keys[0]];
-        if (layoutMode !== 3) columnsCount = 2;
-        delayedShowAssist(nextQuater.dx, nextQuater.dy, nextQuater.height, nextQuater.width);
-        if (lastSelectedClient) lastActiveClient = lastSelectedClient;
-        return true;
+        columnsCount = layoutMode === Layout.LayoutMode.Thirds ? 1 : 2;
+        if (delayedShowAssist(nextQuater.dx, nextQuater.dy, nextQuater.height, nextQuater.width)) {
+            if (lastSelectedClient) lastActiveClient = lastSelectedClient;
+            return true;
+        }
+        /// nothing left to offer for the remaining zones
+        preventAssistFromShowing();
+        hideAssist(false);
+        finishSnap(true);
+        return false;
     } else {
         /// no other quaters to show assist — we can reset the variables
         preventAssistFromShowing();
@@ -290,13 +303,13 @@ function switchAssistLayout() {
 function animateWindowPreviewsOnInit(){
     let item, thumbnail, thumbnailGlobalCoords, indexOfThumbnail, processedClient;
 
-    timer.setTimeout(function(){
+    setTimeout(function(){
         showRegularGridPreviews = false;
 
         for(let i = 0, l = visibleWindowPreviews.length; i < l; i++){
             processedClient = visibleWindowPreviews[i];
             item = windowPreviewsRepeater.itemAt(i);
-            thumbnail = clientsRepeater.itemAt(descendingOrder ? l - 1 - i : i);
+            thumbnail = clientsRepeater.itemAt(i);
             if (!item || !thumbnail) continue;
             thumbnailGlobalCoords = thumbnail.mapToGlobal(0,0);
 
@@ -312,7 +325,7 @@ function animateWindowPreviewsOnInit(){
             item.width = cardWidth - 6;
         }
 
-        timer.setTimeout(function(){
+        setTimeout(function(){
             visibleWindowPreviews = [];
             showRegularGridPreviews = true;
         }, transitionDuration);
@@ -324,10 +337,11 @@ function animateWindowPreviewsOnCancel(callback){
     fadeOutAnimation.restart();
 
     /// show previews of all windows
-    visibleWindowPreviews = [...descendingOrder ? clients.reverse() : clients, ...visibleWindowPreviews];
+    /// previews [0, clients.length) line up with the grid cards by index
+    visibleWindowPreviews = [...clients, ...visibleWindowPreviews];
 
     let item, thumbnail, thumbnailGlobalCoords, indexOfThumbnail, cl;
-    timer.setTimeout(function(){
+    setTimeout(function(){
         transitionDuration = 0;
         showRegularGridPreviews = false;
 
@@ -336,7 +350,7 @@ function animateWindowPreviewsOnCancel(callback){
             if (snappedWindows.includes(visibleWindowPreviews[i].internalId)) continue;
 
             item = windowPreviewsRepeater.itemAt(i);
-            thumbnail = clientsRepeater.itemAt(descendingOrder ? l - 1 - i : i);
+            thumbnail = clientsRepeater.itemAt(i);
             if (!item || !thumbnail) continue;
 
             thumbnailGlobalCoords = thumbnail.mapToGlobal(0,0);
@@ -346,7 +360,7 @@ function animateWindowPreviewsOnCancel(callback){
             item.width = cardWidth - 6;
         }
 
-        timer.setTimeout(function(){
+        setTimeout(function(){
             /// animate previews to their windows positions
             transitionDuration = transitionDurationOnAssistMove;
 
@@ -356,7 +370,7 @@ function animateWindowPreviewsOnCancel(callback){
 
                 cl = visibleWindowPreviews[i];
                 if (cl.minimized) {
-                    thumbnail = clientsRepeater.itemAt(descendingOrder ? l - 1 - i : i);
+                    thumbnail = clientsRepeater.itemAt(i);
                     if (thumbnail) thumbnail.opacity = 0;
                 }
 
@@ -366,7 +380,7 @@ function animateWindowPreviewsOnCancel(callback){
                 item.width = cl.width;
             }
 
-            timer.setTimeout(function(){
+            setTimeout(function(){
                     /// close assist
                     showRegularGridPreviews = true;
                     if (callback) callback();

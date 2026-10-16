@@ -1,8 +1,9 @@
-import QtQuick 2.12
-import QtQuick.Controls 2.12
-import org.kde.plasma.components 3.0 as PlasmaComponents
+import QtQuick
+import QtQuick.Controls
+import org.kde.plasma.components as PlasmaComponents
 
 PlasmaComponents.Button {
+        id: button
         x: mainWindow.width - 50
         height: 30
         width: 30
@@ -19,6 +20,6 @@ PlasmaComponents.Button {
             color: "#31363B"
             radius: 3
             border.width: 1
-            border.color: parent.hovered ? activePalette.highlight : "gray"
+            border.color: button.hovered ? activePalette.highlight : "gray"
         }
 }
