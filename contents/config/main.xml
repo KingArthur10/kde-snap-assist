@@ -101,5 +101,9 @@
 			<label>Opacity for minimized windows</label>
 			<default>1.0</default>
 		</entry>
+		<entry name="debugLogging" type="bool">
+			<label>Write debug messages to the system log</label>
+			<default>false</default>
+		</entry>
     </group>
 </kcfg>

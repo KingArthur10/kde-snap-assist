@@ -4,6 +4,7 @@
 function delayedShowAssist(dx, dy, height, width, window){
     allClients = KWinComponents.Workspace.windows.slice();
     let candidates = allClients.filter(c => WindowManager.shouldShowWindow(c));
+    debugLog("candidates:", candidates.length, "of", allClients.length, "windows");
     if (candidates.length == 0) return false;
 
     /// build the final order first: the Repeater model must not be mutated in place
@@ -42,6 +43,7 @@ function delayedShowAssist(dx, dy, height, width, window){
 }
 
 function showAssist(dx, dy, height, width) {
+    debugLog("show assist at", dx, dy, width + "x" + height);
     activated = true;
     showRegularGridPreviews = true;
     focusedIndex = 0;
@@ -97,6 +99,7 @@ function hideAssist(shouldFocusLastClient) {
 }
 
 function actuallyHideAssist(shouldFocusLastClient){
+    debugLog("hide assist");
     activated = false;
     cancelling = false;
     transitionDurationOnAssistMove = 0;

@@ -101,6 +101,7 @@ function addListenersToClient(client) {
 
     /// KWin may apply the snapped geometry while the move is still in progress
     client.interactiveMoveResizeFinished.connect(main, function() {
+        debugLog("move/resize finished:", client.caption);
         if (!activated && !preventFromShowing) scheduleSnapCheck(client);
     });
 
@@ -154,17 +155,26 @@ function scheduleSnapCheck(client) {
 }
 
 function onWindowResize(window) {
-    if (activated || preventFromShowing || !window || window.deleted || window.specialWindow || !window.active) return;
-    if (window.move || window.resize) return;
+    if (!window || window.deleted || window.specialWindow) return;
+    if (activated || preventFromShowing || !window.active || window.move || window.resize) {
+        debugLog("skip check:", window.caption, "activated", activated, "preventFromShowing", preventFromShowing,
+                 "active", window.active, "move", window.move, "resize", window.resize);
+        return;
+    }
 
     const maxArea = KWinComponents.Workspace.clientArea(KWinComponents.Workspace.MaximizeArea, window);
     const snap = Layout.detectSnap(window.frameGeometry, maxArea, snapDetectPrecision);
+    debugLog("check:", window.caption, "geometry", window.frameGeometry, "area", maxArea, "tile", window.tile,
+             "snap", snap ? snap.mode + "/" + snap.index : "none");
     if (!snap) return;
 
     AssistManager.finishSnap(false); /// make sure we cleared all variables
 
     /// don't show assist if window could be fit in the group behind
-    if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) return;
+    if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) {
+        debugLog("fits in snap group behind, not showing");
+        return;
+    }
 
     currentScreenWidth = maxArea.width; currentScreenHeight = maxArea.height;
     minDx = maxArea.x; minDy = maxArea.y;

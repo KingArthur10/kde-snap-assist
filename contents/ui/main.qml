@@ -101,6 +101,7 @@ Window {
     property int desktopBackgroundBlur
     property bool immersiveMode
     property double opacityForMinimized
+    property bool debugLogging
 
     Connections {
         target: KWinComponents.Workspace
@@ -129,6 +130,7 @@ Window {
         for (let i = 0; i < windows.length; ++i) {
             WindowManager.addListenersToClient(windows[i]);
         }
+        debugLog("started, watching", windows.length, "windows");
     }
 
     /// Desktop preview on background
@@ -509,6 +511,12 @@ Window {
         return Qt.rect(main.x, main.y, main.width, main.height);
     }
 
+    /// Enabled with the debugLogging setting; read with `journalctl --user -f | grep kdesnapassist6`
+    function debugLog(...args) {
+        /// warning level: distributions commonly filter out script info/debug output
+        if (debugLogging) console.warn("kdesnapassist6:", ...args);
+    }
+
     function readConfig(key, defaultValue) {
         if (configOverrides && configOverrides.hasOwnProperty(key)) return configOverrides[key];
         return KWin.readConfig(key, defaultValue);
@@ -539,6 +547,7 @@ Window {
         desktopBackgroundBlur = readConfig("desktopBackgroundBlur", 18);
         immersiveMode = readConfig("immersiveMode", true);
         opacityForMinimized = readConfig("opacityForMinimized", 1.0);
+        debugLogging = readConfig("debugLogging", false);
         trackSnappedWindows = minimizeSnappedTogether || raiseSnappedTogether || fillOnSnappedClose || fillOnSnappedMove || fitWindowInGroupBehind || !showSnappedWindows;
         trackActiveWindows = sortByLastActive || fitWindowInGroupBehind;
         if (!showDesktopBackground) immersiveMode = false;
