@@ -5,9 +5,16 @@
             {
                 "Email": "maximtsyba@gmail.com",
                 "Name": "emvaized"
+            },
+            {
+                "Name": "Luis Bocanegra"
+            },
+            {
+                "Email": "8808608+KingArthur10@users.noreply.github.com",
+                "Name": "Arthur Bogard"
             }
         ],
-        "BugReportUrl": "https://github.com/emvaized/kde-snap-assist/issues",
+        "BugReportUrl": "https://github.com/KingArthur10/kde-snap-assist/issues",
         "Description": "KWin script which suggests other window thumbnails on snap",
         "Description[es]": "Script de KWin que sugiere otras miniaturas de ventanas en el snap",
         "Description[nl]": "Een KWin-script dat venstersuggesties aanlevert als een venster aan de zijkant wordt vastgemaakt",
@@ -15,12 +22,12 @@
         "Description[uk]": "Скрипт, який пропонує мініатюри інших вікон при прив'язці вікна до краю екрана",
         "EnabledByDefault": true,
         "Icon": "preferences-system-windows-effect-presentwindows",
-        "Id": "kdesnapassist2",
+        "Id": "kdesnapassist6",
         "License": "GPL",
-        "Name": "KDE Snap Assist 2",
+        "Name": "KDE Snap Assist 6",
         "Name[nl]": "KDE-vensterrangschikking",
-        "Version": "2.0-dev",
-        "Website": "https://github.com/emvaized/kde-snap-assist"
+        "Version": "6.0-dev",
+        "Website": "https://github.com/KingArthur10/kde-snap-assist"
     },
     "X-KDE-ConfigModule": "kwin/effects/configs/kcm_kwin4_genericscripted",
     "X-Plasma-API": "declarativescript",
