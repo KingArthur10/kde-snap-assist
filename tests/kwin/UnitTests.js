@@ -103,6 +103,19 @@ var tests = [
         },
     },
     {
+        name: "layout: how much of a rect the windows above leave showing",
+        run: function (t) {
+            const left = r(0, 0, 960, 1080);
+            t.equal(Layout.uncoveredFraction(left, []), 1, "nothing above shows all of it");
+            t.equal(Layout.uncoveredFraction(left, [r(0, 0, 1920, 1080)]), 0, "maximized window above hides it");
+            t.equal(Layout.uncoveredFraction(left, [r(960, 0, 960, 1080)]), 1, "neighbour does not cover it");
+            t.equal(Layout.uncoveredFraction(left, [r(0, 0, 960, 540), r(0, 540, 960, 540)]), 0, "two quarters together hide it");
+            t.equal(Layout.uncoveredFraction(left, [r(0, 0, 960, 700), r(0, 400, 960, 680)]), 0, "overlapping covers count once");
+            t.equal(Layout.uncoveredFraction(left, [r(0, 0, 480, 1080)]), 0.5, "half covered");
+            t.equal(Layout.uncoveredFraction(r(0, 0, 0, 0), [left]), 0, "empty rect has nothing showing");
+        },
+    },
+    {
         name: "layout: offset maximize area (second screen, top panel)",
         run: function (t) {
             const s = Layout.detectSnap(r(1920, 44, 1280, 1396), OFFSET_AREA, 0);

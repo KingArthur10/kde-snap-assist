@@ -461,12 +461,19 @@ function shouldShowWindow(client) {
 /// Whether another visible window already fills `zone` (KWin tile layouts may
 /// leave gaps between windows, so most of the zone is enough). A window that
 /// reaches into `snappedZone` (e.g. a maximized one) is behind the new snap,
-/// not part of the layout, so it fills nothing.
+/// not part of the layout, so it fills nothing. Neither does a window hidden
+/// behind the windows stacked above it.
 function isZoneOccupied(zone, except, snappedZone) {
-    return KWinComponents.Workspace.windows.some(w => w !== except && !w.deleted && !w.minimized
-        && w.normalWindow && !isOwnOverlay(w) && isOnCurrentDesktop(w)
-        && Layout.coverage(zone, w.frameGeometry) >= 0.9
-        && (!snappedZone || Layout.coverage(snappedZone, w.frameGeometry) < 0.1));
+    /// bottom to top
+    const stack = KWinComponents.Workspace.stackingOrder.filter(w => w !== except && !w.deleted && !w.minimized
+        && w.normalWindow && !isOwnOverlay(w) && isOnCurrentDesktop(w));
+    return stack.some(function(w, i) {
+        const g = w.frameGeometry;
+        if (Layout.coverage(zone, g) < 0.9) return false;
+        if (snappedZone && Layout.coverage(snappedZone, g) >= 0.1) return false;
+        const inZone = Layout.intersection(zone, g);
+        return Layout.uncoveredFraction(inZone, stack.slice(i + 1).map(above => above.frameGeometry)) >= 0.05;
+    });
 }
 
 /// Oldest activation first; windows never activated come first.

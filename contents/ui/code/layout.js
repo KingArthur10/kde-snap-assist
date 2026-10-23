@@ -101,12 +101,43 @@ function rectsIntersect(a, b) {
     return a.x + a.width > b.x && a.x < b.x + b.width && a.y + a.height > b.y && a.y < b.y + b.height;
 }
 
+/// The overlap of two rects, or null when they do not overlap.
+function intersection(a, b) {
+    const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+    const w = Math.min(a.x + a.width, b.x + b.width) - x;
+    const h = Math.min(a.y + a.height, b.y + b.height) - y;
+    return w > 0 && h > 0 ? rect(x, y, w, h) : null;
+}
+
 /// Fraction (0..1) of `zone` that `geom` covers.
 function coverage(zone, geom) {
-    const w = Math.min(zone.x + zone.width, geom.x + geom.width) - Math.max(zone.x, geom.x);
-    const h = Math.min(zone.y + zone.height, geom.y + geom.height) - Math.max(zone.y, geom.y);
+    const overlap = intersection(zone, geom);
     const area = zone.width * zone.height;
-    return w > 0 && h > 0 && area > 0 ? (w * h) / area : 0;
+    return overlap && area > 0 ? (overlap.width * overlap.height) / area : 0;
+}
+
+/// Fraction (0..1) of `target` that none of the `covers` rects overlap.
+function uncoveredFraction(target, covers) {
+    const area = target.width * target.height;
+    if (!(area > 0)) return 0;
+    const parts = covers.map(c => intersection(target, c)).filter(p => p);
+    if (parts.length === 0) return 1;
+
+    /// split target into cells along every cover edge; each cell is either covered or not
+    const xs = [target.x, target.x + target.width], ys = [target.y, target.y + target.height];
+    parts.forEach(function(p) { xs.push(p.x, p.x + p.width); ys.push(p.y, p.y + p.height); });
+    const sorted = list => list.filter((v, i) => list.indexOf(v) === i).sort((a, b) => a - b);
+    const cellXs = sorted(xs), cellYs = sorted(ys);
+
+    let covered = 0;
+    for (let i = 0; i + 1 < cellXs.length; i++) {
+        for (let j = 0; j + 1 < cellYs.length; j++) {
+            const cx = (cellXs[i] + cellXs[i + 1]) / 2, cy = (cellYs[j] + cellYs[j + 1]) / 2;
+            if (parts.some(p => cx > p.x && cx < p.x + p.width && cy > p.y && cy < p.y + p.height))
+                covered += (cellXs[i + 1] - cellXs[i]) * (cellYs[j + 1] - cellYs[j]);
+        }
+    }
+    return Math.max(0, 1 - covered / area);
 }
 
 /// New geometry for a window that grows into the space `freed` left behind,

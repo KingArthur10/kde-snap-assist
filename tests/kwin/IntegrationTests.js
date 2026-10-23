@@ -286,6 +286,42 @@ var tests = [
         },
     },
     {
+        name: "a snapped half hidden behind a maximized window does not fill its quarters",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta, gamma] = ["Alpha", "Beta", "Gamma"].map(env.win);
+            env.sut.preventFromShowing = true;
+            env.quickTile(beta, "Left");
+            env.workspace.activeWindow = gamma;
+            gamma.setMaximize(true, true);
+            yield 300;
+            const stack = env.workspace.stackingOrder;
+            t.ok(stack.indexOf(gamma) > stack.indexOf(beta), "maximized window is stacked above the snapped half");
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopRight");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 100;
+            t.rectNear(env.sut.assistRect(), r(0, 0, 960, 540), "offers the top-left quarter the hidden half was in");
+        },
+    },
+    {
+        name: "a partly covered snapped half still fills its quarters",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta, gamma] = ["Alpha", "Beta", "Gamma"].map(env.win);
+            env.sut.preventFromShowing = true;
+            env.quickTile(beta, "Left");
+            env.workspace.activeWindow = gamma;
+            gamma.frameGeometry = Qt.rect(100, 100, 640, 480);
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopRight");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 100;
+            t.rectNear(env.sut.assistRect(), r(960, 540, 960, 540), "offers only the bottom-right quarter");
+        },
+    },
+    {
         name: "a quarter snap next to a snapped half and quarter offers nothing",
         config: cfg(),
         run: function* (t, env) {
