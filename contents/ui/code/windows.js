@@ -206,7 +206,7 @@ function onWindowResize(window) {
     if (!snap || (snap.custom && !window.tile)) return;
 
     /// moving the split between windows that are already snapped is not a new snap
-    const emptyZones = snap.remaining.filter(zone => !isZoneOccupied(zone, window));
+    const emptyZones = snap.remaining.filter(zone => !isZoneOccupied(zone, window, snap.zone));
     if (emptyZones.length === 0) {
         debugLog("every other zone is already occupied, not showing");
         return;
@@ -459,11 +459,14 @@ function shouldShowWindow(client) {
 }
 
 /// Whether another visible window already fills `zone` (KWin tile layouts may
-/// leave gaps between windows, so most of the zone is enough).
-function isZoneOccupied(zone, except) {
+/// leave gaps between windows, so most of the zone is enough). A window that
+/// reaches into `snappedZone` (e.g. a maximized one) is behind the new snap,
+/// not part of the layout, so it fills nothing.
+function isZoneOccupied(zone, except, snappedZone) {
     return KWinComponents.Workspace.windows.some(w => w !== except && !w.deleted && !w.minimized
         && w.normalWindow && !isOwnOverlay(w) && isOnCurrentDesktop(w)
-        && Layout.coverage(zone, w.frameGeometry) >= 0.9);
+        && Layout.coverage(zone, w.frameGeometry) >= 0.9
+        && (!snappedZone || Layout.coverage(snappedZone, w.frameGeometry) < 0.1));
 }
 
 /// Oldest activation first; windows never activated come first.

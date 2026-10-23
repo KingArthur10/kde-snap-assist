@@ -253,6 +253,53 @@ var tests = [
         },
     },
     {
+        name: "a maximized window behind a quarter snap does not fill the other quarters",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta] = ["Alpha", "Beta"].map(env.win);
+            env.sut.preventFromShowing = true;
+            beta.setMaximize(true, true);
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopRight");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 100;
+            t.rectNear(env.sut.assistRect(), r(0, 0, 960, 540), "offers the top-left quarter");
+            t.ok(env.sut.clients.includes(beta), "the maximized window is a candidate");
+        },
+    },
+    {
+        name: "a quarter snap next to a snapped half only offers the free quarter",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta] = ["Alpha", "Beta"].map(env.win);
+            env.sut.preventFromShowing = true;
+            env.quickTile(beta, "Left");
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopRight");
+            yield t.until(() => env.sut.activated, "assist to activate");
+            yield 100;
+            t.rectNear(env.sut.assistRect(), r(960, 540, 960, 540), "offers only the bottom-right quarter");
+            env.sut.selectCandidate(0);
+            yield t.until(() => !env.sut.activated, "assist to finish after the one free quarter");
+        },
+    },
+    {
+        name: "a quarter snap next to a snapped half and quarter offers nothing",
+        config: cfg(),
+        run: function* (t, env) {
+            const [alpha, beta, gamma] = ["Alpha", "Beta", "Gamma"].map(env.win);
+            env.sut.preventFromShowing = true;
+            env.quickTile(beta, "Left"); env.quickTile(gamma, "BottomRight");
+            yield 300;
+            env.sut.preventFromShowing = false;
+            env.quickTile(alpha, "TopRight");
+            yield 400;
+            t.ok(!env.sut.activated, "no assist when the half and the quarter fill the rest");
+        },
+    },
+    {
         name: "dragging the centre of four snapped quarters moves the whole cross",
         config: cfg(),
         run: function* (t, env) {
