@@ -286,14 +286,17 @@ var tests = [
         },
     },
     {
-        name: "a top-left snap next to a snapped right half keeps the half and offers the bottom-left",
+        name: "a top-left snap next to a dismissed right half keeps the half visible and offers the bottom-left",
         config: cfg(),
         run: function* (t, env) {
             const [alpha, beta] = ["Alpha", "Beta"].map(env.win);
-            env.sut.preventFromShowing = true;
+            env.workspace.activeWindow = beta;
             env.quickTile(beta, "Right");
+            yield t.until(() => env.sut.activated, "half assist to activate");
+            env.sut.dismiss();
+            yield t.until(() => !env.sut.activated, "half assist to close");
+            yield t.until(() => !env.sut.preventFromShowing, "dismiss suppression to end");
             yield 300;
-            env.sut.preventFromShowing = false;
             env.workspace.activeWindow = alpha;
             env.quickTile(alpha, "TopLeft");
             yield t.until(() => env.sut.activated, "assist to activate");
@@ -301,6 +304,7 @@ var tests = [
             t.rectNear(env.sut.assistRect(), r(0, 540, 960, 540), "offers only the bottom-left quarter");
             t.rectNear(beta.frameGeometry, r(960, 0, 960, 1080), "right half stays put while the assist is open");
             t.ok(!env.sut.clients.includes(beta), "the snapped half is not a candidate");
+            t.ok(env.sut.drawsLayoutWindow(beta), "the overlay keeps drawing the right half");
             const chosen = env.sut.clients[0];
             env.sut.selectCandidate(0);
             yield t.until(() => !env.sut.activated, "assist to finish after the one free quarter");
@@ -329,6 +333,7 @@ var tests = [
             yield 100;
             t.rectNear(env.sut.assistRect(), r(0, 540, 960, 540), "offers only the bottom-left quarter");
             t.rectNear(beta.frameGeometry, r(960, 0, 960, 1080), "right half stays put while the assist is open");
+            t.ok(env.sut.drawsLayoutWindow(beta), "the overlay keeps drawing the right half");
             const chosen = env.sut.clients[0];
             env.sut.selectCandidate(0);
             yield t.until(() => !env.sut.activated, "assist to finish");

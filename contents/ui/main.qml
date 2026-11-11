@@ -343,6 +343,23 @@ Window {
         }
     }
 
+    /// Windows already filling the layout's other zones, kept in place over the backdrop
+    Repeater {
+        id: layoutPreviewsRepeater
+        enabled: immersiveMode
+        model: immersiveMode ? layoutClients : []
+
+        KWinComponents.WindowThumbnail {
+            wId: modelData.internalId
+            clip: true
+            visible: activated && !modelData.minimized
+            width: modelData.width
+            height: modelData.height
+            x: modelData.x - minDx
+            y: modelData.y - minDy
+        }
+    }
+
     /// Snapped windows previews
     Repeater {
         id: windowPreviewsRepeater
@@ -505,6 +522,15 @@ Window {
     function cardWindow(index) {
         const card = clientsRepeater.itemAt(index);
         return card ? card.window : null; // qmllint disable missing-property
+    }
+
+    /// Whether the full-screen overlay draws `window` where it sits.
+    function drawsLayoutWindow(window) {
+        for (let i = 0; i < layoutPreviewsRepeater.count; i++) {
+            const item = layoutPreviewsRepeater.itemAt(i);
+            if (item && item.visible && item.wId === window.internalId) return true; // qmllint disable missing-property
+        }
+        return false;
     }
 
     /// The screen area (global coordinates) the assist is offering to fill.
