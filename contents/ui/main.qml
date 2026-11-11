@@ -68,6 +68,7 @@ Window {
     /// for quater tiling
     property var quatersToShowNext: ({}) /// store next quaters to show assist after selection
     property var filteredClients: ([]) /// clients to filter (which are already snapped in current flow)
+    property var layoutClients: ([]) /// clients already filling other zones of the snapped layout, not offered
     property var filteredQuaters: ([]) /// quaters to ignore during iteration (occupied by big window)
     property int currentScreenWidth: 1
     property int currentScreenHeight: 1

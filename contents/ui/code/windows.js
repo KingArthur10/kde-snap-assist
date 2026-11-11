@@ -206,13 +206,16 @@ function onWindowResize(window) {
     if (!snap || (snap.custom && !window.tile)) return;
 
     /// moving the split between windows that are already snapped is not a new snap
-    const emptyZones = snap.remaining.filter(zone => !isZoneOccupied(zone, window, snap.zone));
+    const occupants = snap.remaining.map(zone => zoneOccupant(zone, window, snap.zone));
+    const emptyZones = snap.remaining.filter((zone, i) => !occupants[i]);
     if (emptyZones.length === 0) {
         debugLog("every other zone is already occupied, not showing");
         return;
     }
 
     AssistManager.finishSnap(false); /// make sure we cleared all variables
+    /// windows already filling the layout's other zones stay where they are
+    layoutClients = occupants.filter(w => w);
 
     /// don't show assist if window could be fit in the group behind
     if (fitWindowInGroupBehind && windowFitsInSnapGroup(window)) {
@@ -448,7 +451,7 @@ function isOnCurrentDesktop(client) {
 
 function shouldShowWindow(client) {
     if (!client || client.deleted || isOwnOverlay(client)) return false;
-    if (filteredClients.includes(client)) return false;
+    if (filteredClients.includes(client) || layoutClients.includes(client)) return false;
     if (client.active || client.specialWindow || client.skipSwitcher) return false;
     if (!showMinimizedWindows && client.minimized) return false;
     if (!showOtherScreensWindows && client.output !== KWinComponents.Workspace.activeScreen) return false;
@@ -458,22 +461,22 @@ function shouldShowWindow(client) {
     return true;
 }
 
-/// Whether another visible window already fills `zone` (KWin tile layouts may
+/// The visible window that already fills `zone`, or null (KWin tile layouts may
 /// leave gaps between windows, so most of the zone is enough). A window that
 /// reaches into `snappedZone` (e.g. a maximized one) is behind the new snap,
 /// not part of the layout, so it fills nothing. Neither does a window hidden
 /// behind the windows stacked above it.
-function isZoneOccupied(zone, except, snappedZone) {
+function zoneOccupant(zone, except, snappedZone) {
     /// bottom to top
     const stack = KWinComponents.Workspace.stackingOrder.filter(w => w !== except && !w.deleted && !w.minimized
         && w.normalWindow && !isOwnOverlay(w) && isOnCurrentDesktop(w));
-    return stack.some(function(w, i) {
+    return stack.find(function(w, i) {
         const g = w.frameGeometry;
         if (Layout.coverage(zone, g) < 0.9) return false;
         if (snappedZone && Layout.coverage(snappedZone, g) >= 0.1) return false;
         const inZone = Layout.intersection(zone, g);
         return Layout.uncoveredFraction(inZone, stack.slice(i + 1).map(above => above.frameGeometry)) >= 0.05;
-    });
+    }) || null;
 }
 
 /// Oldest activation first; windows never activated come first.

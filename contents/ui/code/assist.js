@@ -124,6 +124,7 @@ function finishSnap(success){
     }
 
     filteredClients = [];
+    layoutClients = [];
     filteredQuaters = [];
     snappedWindows = [];
     visibleWindowPreviews = [];
